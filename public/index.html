@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#102B66">
+<title>KC Earn — Earn more. Do more.</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#F4F7FC;color:#142B55}
+header{background:#102B66;color:white;text-align:center;padding:38px 20px 55px}
+.logo{width:76px;height:76px;border-radius:23px;background:white;color:#1764DC;display:grid;place-items:center;font-size:30px;font-weight:900;margin:0 auto 12px}
+.brand{font-size:27px;font-weight:900;letter-spacing:3px}
+.tagline{color:#C8D9FF;margin-top:8px;font-size:14px}
+main{max-width:520px;margin:-18px auto 0;background:#F4F7FC;border-radius:26px 26px 0 0;padding:25px 22px 35px;min-height:420px}
+h1{font-size:25px;margin:10px 0;color:#142B55}
+.description{color:#68758C;font-size:14px;line-height:1.65;margin:10px 0 22px}
+.features{display:grid;gap:13px;margin-bottom:25px}
+.feature{display:flex;align-items:center;gap:14px;background:white;padding:16px;border-radius:15px}
+.emoji{font-size:27px}
+.feature strong{display:block;font-size:15px;color:#18335F}
+.feature small{display:block;color:#7A879B;margin-top:5px;font-size:12px}
+button{width:100%;height:54px;border:0;border-radius:14px;background:#1764DC;color:white;font-size:16px;font-weight:800;cursor:pointer;margin-top:5px}
+button:hover{background:#1054bf}
+.secondary{background:transparent;color:#1764DC;font-size:14px;margin-top:10px}
+.secondary:hover{background:#eaf1ff}
+input{width:100%;height:55px;border:1px solid #E1E7F0;border-radius:13px;padding:0 16px;font-size:15px;margin-bottom:14px;outline-color:#1764DC;background:white}
+.back{display:block;text-align:center;color:#68758C;text-decoration:none;padding:18px;font-size:14px;cursor:pointer}
+footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-spacing:1px;margin-top:28px}
+.notice{display:none;background:#eaf1ff;color:#18335F;border-radius:12px;padding:13px;font-size:13px;line-height:1.5;margin-top:14px}
+@media(min-width:600px){header{padding-top:48px}main{margin-top:-20px;padding:30px 32px 40px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">KC</div>
+  <div class="brand">KC EARN</div>
+  <div class="tagline">Earn more. Do more.</div>
+</header>
+
+<main>
+  <section id="welcome">
+    <h1>Welcome to KC Earn</h1>
+    <p class="description">Your journey to earning rewards online starts here. Complete activities, discover opportunities and earn rewards.</p>
+    <div class="features">
+      <div class="feature"><span class="emoji">📋</span><div><strong>Paid Surveys</strong><small>Share your opinions and earn rewards.</small></div></div>
+      <div class="feature"><span class="emoji">🎯</span><div><strong>Online Offers</strong><small>Discover available earning opportunities.</small></div></div>
+      <div class="feature"><span class="emoji">👥</span><div><strong>Refer Friends</strong><small>Invite friends to join KC Earn.</small></div></div>
+      <div class="feature"><span class="emoji">💰</span><div><strong>Your Wallet</strong><small>Keep track of your rewards and withdrawals.</small></div></div>
+    </div>
+    <button onclick="showPage('register')">Create Account</button>
+    <button class="secondary" onclick="showPage('login')">Already have an account? Sign in</button>
+  </section>
+
+  <section id="register" hidden>
+    <h1>Create your account</h1>
+    <p class="description">Join KC Earn and explore earning opportunities.</p>
+    <form onsubmit="showNotice(event,'Registration will be connected to the secure account service in the next stage.')">
+      <input type="text" placeholder="Full name" required maxlength="100">
+      <input type="email" placeholder="Email address" required>
+      <input type="password" placeholder="Password" required minlength="8">
+      <button type="submit">Create Account</button>
+    </form>
+    <button class="secondary" onclick="showPage('login')">Already registered? Sign in</button>
+    <div class="notice" id="registerNotice"></div>
+    <a class="back" onclick="showPage('welcome')">← Back to welcome</a>
+  </section>
+
+  <section id="login" hidden>
+    <h1>Welcome back</h1>
+    <p class="description">Sign in to continue to KC Earn.</p>
+    <form onsubmit="showNotice(event,'Login will be connected to the secure account service in the next stage.')">
+      <input type="email" placeholder="Email address" required>
+      <input type="password" placeholder="Password" required>
+      <button type="submit">Sign In</button>
+    </form>
+    <button class="secondary" onclick="showPage('register')">Don't have an account? Register</button>
+    <div class="notice" id="loginNotice"></div>
+    <a class="back" onclick="showPage('welcome')">← Back to welcome</a>
+  </section>
+
+  <footer>KC EARN &nbsp; • &nbsp; K.C. VENTURES</footer>
+</main>
+
+<script>
+function showPage(page){
+  ['welcome','register','login'].forEach(id=>{
+    document.getElementById(id).hidden = id !== page;
+  });
+  window.scrollTo(0,0);
+}
+function showNotice(event,message){
+  event.preventDefault();
+  const section=event.target.closest('section');
+  const notice=section.querySelector('.notice');
+  notice.textContent=message;
+  notice.style.display='block';
+}
+</script>
+</body>
+</html>

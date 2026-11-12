@@ -1,4 +1,6 @@
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3000;
@@ -25,8 +27,24 @@ async function initializeDatabase() {
 }
 
 const server = http.createServer(async (req, res) => {
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
+
+  if (req.method === 'GET' &&
+      (req.url === '/' || req.url === '/index.html')) {
+    fs.readFile(path.join(__dirname, '../public/index.html'), (error, data) => {
+      if (error) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('KC Earn homepage could not be loaded.');
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(data);
+    });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
   if (req.method === 'GET' && req.url === '/api/health') {
     try {
@@ -51,9 +69,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   res.writeHead(404);
-  res.end(JSON.stringify({
-    error: 'Route not found'
-  }));
+  res.end(JSON.stringify({ error: 'Route not found' }));
 });
 
 initializeDatabase()
