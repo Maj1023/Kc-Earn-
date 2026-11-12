@@ -162,10 +162,10 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
       <strong>Refer Friends</strong>
       <small>Coming soon</small>
     </div>
-    <div class="dashboard-card">
+    <div class="dashboard-card" onclick="openTransactions()" role="button" tabindex="0">
       <span class="emoji">📜</span>
       <strong>Transactions</strong>
-      <small>Coming soon</small>
+      <small>View transaction history</small>
     </div>
     <div class="dashboard-card">
       <span class="emoji">💸</span>
@@ -178,12 +178,25 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
   <div class="notice" id="dashboardNotice"></div>
 </section>
 
+<section id="transactions" hidden>
+  <h1>Transaction History</h1>
+  <p class="description">Your latest wallet activity.</p>
+
+  <div id="transactionList" class="dashboard-card">
+    Loading your transactions...
+  </div>
+
+  <button type="button" class="secondary" onclick="showPage('dashboard')">
+    Back to Dashboard
+  </button>
+</section>
+
   <footer>KC EARN &nbsp; • &nbsp; K.C. VENTURES</footer>
 </main>
 
 <script>
 function showPage(page) {
-  ['welcome', 'register', 'login', 'dashboard'].forEach(id => {
+  ['welcome', 'register', 'login', 'dashboard', 'transactions'].forEach(id => {
     document.getElementById(id).hidden = id !== page;
   });
   window.scrollTo(0, 0);
@@ -306,6 +319,75 @@ async function loadWallet() {
   } catch (error) {
     status.textContent = 'Unable to load balance. Please refresh.';
     console.error('Wallet error:', error);
+  }
+}
+
+async function openTransactions() {
+  showPage('transactions');
+  await loadTransactions();
+}
+
+async function loadTransactions() {
+  const list = document.getElementById('transactionList');
+  list.textContent = 'Loading your transactions...';
+
+  try {
+    const response = await fetch('/api/wallet/transactions', {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Could not load transactions.');
+    }
+
+    if (!Array.isArray(result.transactions)) {
+      throw new Error('Invalid transaction data.');
+    }
+
+    if (result.transactions.length === 0) {
+      list.textContent = 'No transactions yet. Your wallet activity will appear here.';
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    result.transactions.forEach(transaction => {
+      const credit = transaction.type === 'credit';
+      const amount = Number(transaction.amountNaira);
+
+      const card = document.createElement('div');
+      card.className = 'dashboard-card';
+
+      const heading = document.createElement('strong');
+      heading.textContent = (credit ? 'Credit' : 'Debit') +
+        ' — ' + transaction.description;
+
+      const value = document.createElement('h2');
+      value.textContent = (credit ? '+' : '−') +
+        new Intl.NumberFormat('en-NG', {
+          style: 'currency',
+          currency: 'NGN'
+        }).format(amount);
+
+      const date = document.createElement('small');
+      const timestamp = new Date(transaction.createdAt);
+      date.textContent = Number.isFinite(timestamp.getTime())
+        ? timestamp.toLocaleString('en-NG')
+        : 'Date unavailable';
+
+      card.append(heading, value, date);
+      fragment.appendChild(card);
+    });
+
+    list.replaceChildren(fragment);
+
+  } catch (error) {
+    list.textContent = error.message || 'Unable to load transactions. Please try again.';
+    console.error('Transaction history error:', error);
   }
 }
 
