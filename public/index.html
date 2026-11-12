@@ -140,8 +140,8 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
 
   <div class="dashboard-card wallet-card">
     <small>MY WALLET</small>
-    <h2>Wallet setup in progress</h2>
-    <p>Your real earnings and balance will appear here.</p>
+    <h2 id="walletBalance">₦0.00</h2>
+    <p id="walletStatus">Loading your real wallet balance...</p>
   </div>
 
   <h2 class="dashboard-heading">Start earning</h2>
@@ -272,6 +272,41 @@ function openDashboard(user) {
   document.getElementById('dashboardName').textContent = user.fullName;
   document.getElementById('dashboardEmail').textContent = user.email;
   showPage('dashboard');
+  loadWallet();
+}
+
+async function loadWallet() {
+  const balance = document.getElementById('walletBalance');
+  const status = document.getElementById('walletStatus');
+
+  try {
+    const response = await fetch('/api/wallet', {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+
+    if (!response.ok) {
+      throw new Error('Could not load wallet.');
+    }
+
+    const result = await response.json();
+    const amount = Number(result.wallet.balanceNaira);
+
+    if (!Number.isFinite(amount)) {
+      throw new Error('Invalid wallet balance.');
+    }
+
+    balance.textContent = new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN'
+    }).format(amount);
+
+    status.textContent = 'Your available wallet balance.';
+  } catch (error) {
+    status.textContent = 'Unable to load balance. Please refresh.';
+    console.error('Wallet error:', error);
+  }
 }
 
 async function loadCurrentUser() {
