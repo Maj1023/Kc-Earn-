@@ -55,10 +55,10 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
   <section id="register" hidden>
     <h1>Create your account</h1>
     <p class="description">Join KC Earn and explore earning opportunities.</p>
-    <form onsubmit="showNotice(event,'Registration will be connected to the secure account service in the next stage.')">
-      <input type="text" placeholder="Full name" required maxlength="100">
-      <input type="email" placeholder="Email address" required>
-      <input type="password" placeholder="Password" required minlength="8">
+    <form id="registerForm" onsubmit="registerAccount(event)">
+      <input type="text" name="fullName" placeholder="Full name" required maxlength="100">
+      <input type="email" name="email" placeholder="Email address" required maxlength="255">
+      <input type="password" name="password" placeholder="Password" required minlength="8" maxlength="72">
       <button type="submit">Create Account</button>
     </form>
     <button class="secondary" onclick="showPage('login')">Already registered? Sign in</button>
@@ -69,9 +69,9 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
   <section id="login" hidden>
     <h1>Welcome back</h1>
     <p class="description">Sign in to continue to KC Earn.</p>
-    <form onsubmit="showNotice(event,'Login will be connected to the secure account service in the next stage.')">
-      <input type="email" placeholder="Email address" required>
-      <input type="password" placeholder="Password" required>
+    <form id="loginForm" onsubmit="loginAccount(event)">
+      <input type="email" name="email" placeholder="Email address" required maxlength="255">
+      <input type="password" name="password" placeholder="Password" required maxlength="72">
       <button type="submit">Sign In</button>
     </form>
     <button class="secondary" onclick="showPage('register')">Don't have an account? Register</button>
@@ -83,18 +83,95 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
 </main>
 
 <script>
-function showPage(page){
-  ['welcome','register','login'].forEach(id=>{
+function showPage(page) {
+  ['welcome', 'register', 'login'].forEach(id => {
     document.getElementById(id).hidden = id !== page;
   });
-  window.scrollTo(0,0);
+  window.scrollTo(0, 0);
 }
-function showNotice(event,message){
+
+function showNotice(sectionId, message, success = false) {
+  const notice = document.querySelector('#' + sectionId + ' .notice');
+  notice.textContent = message;
+  notice.style.display = 'block';
+  notice.style.background = success ? '#e7f8ed' : '#eaf1ff';
+  notice.style.color = success ? '#176534' : '#18335F';
+}
+
+async function sendAccountRequest(url, data) {
+  const response = await fetch(url, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.error || 'Something went wrong.');
+  }
+
+  return result;
+}
+
+async function registerAccount(event) {
   event.preventDefault();
-  const section=event.target.closest('section');
-  const notice=section.querySelector('.notice');
-  notice.textContent=message;
-  notice.style.display='block';
+
+  const form = event.target;
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  button.textContent = 'Creating account...';
+
+  try {
+    const result = await sendAccountRequest('/api/register', {
+      fullName: form.elements.fullName.value,
+      email: form.elements.email.value,
+      password: form.elements.password.value
+    });
+
+    form.elements.password.value = '';
+
+    showNotice(
+      'register',
+      result.message + ' Welcome to KC Earn, ' + result.user.fullName + '. Your account has been created.',
+      true
+    );
+  } catch (error) {
+    showNotice('register', error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Create Account';
+  }
+}
+
+async function loginAccount(event) {
+  event.preventDefault();
+
+  const form = event.target;
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  button.textContent = 'Signing in...';
+
+  try {
+    const result = await sendAccountRequest('/api/login', {
+      email: form.elements.email.value,
+      password: form.elements.password.value
+    });
+
+    form.elements.password.value = '';
+
+    showNotice(
+      'login',
+      result.message + ' Welcome back, ' + result.user.fullName + '.',
+      true
+    );
+  } catch (error) {
+    showNotice('login', error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Sign In';
+  }
 }
 </script>
 </body>
