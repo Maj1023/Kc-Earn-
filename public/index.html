@@ -24,6 +24,7 @@ button{width:100%;height:54px;border:0;border-radius:14px;background:#1764DC;col
 button:hover{background:#1054bf}
 .secondary{background:transparent;color:#1764DC;font-size:14px;margin-top:10px}
 .secondary:hover{background:#eaf1ff}
+select{width:100%;height:55px;border:1px solid #E1E7F0;border-radius:13px;padding:0 16px;font-size:15px;margin-bottom:14px;outline-color:#1764DC;background:white;color:#142B55}
 input{width:100%;height:55px;border:1px solid #E1E7F0;border-radius:13px;padding:0 16px;font-size:15px;margin-bottom:14px;outline-color:#1764DC;background:white}
 .back{display:block;text-align:center;color:#68758C;text-decoration:none;padding:18px;font-size:14px;cursor:pointer}
 footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-spacing:1px;margin-top:28px}
@@ -167,10 +168,17 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
       <strong>Transactions</strong>
       <small>View transaction history</small>
     </div>
-    <div class="dashboard-card">
+    <div class="dashboard-card" onclick="openWithdrawals()" role="button" tabindex="0">
       <span class="emoji">💸</span>
       <strong>Withdrawals</strong>
-      <small>Coming soon</small>
+      <small>View withdrawal requests</small>
+    </div>
+
+    <div id="adminCard" class="dashboard-card" hidden
+         onclick="openAdminWithdrawals()" role="button" tabindex="0">
+      <span class="emoji">🛡️</span>
+      <strong>Admin Dashboard</strong>
+      <small>Manage withdrawal requests</small>
     </div>
   </div>
 
@@ -191,12 +199,122 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
   </button>
 </section>
 
+<section id="withdrawals" hidden>
+  <h1>Withdrawal History</h1>
+  <p class="description">View the status of your withdrawal requests.</p>
+
+  <div class="dashboard-card">
+    <strong>Minimum withdrawal: ₦1,500</strong>
+    <p>Withdrawals are subject to administrator review.</p>
+  </div>
+
+  <div class="dashboard-card">
+    <h2>Request a withdrawal</h2>
+    <p>Minimum amount: ₦1,500. Enter your correct account details.</p>
+
+    <form id="withdrawalForm" onsubmit="submitWithdrawal(event)">
+      <input
+        type="number"
+        name="amountNaira"
+        placeholder="Amount in Naira (₦)"
+        min="1500"
+        step="0.01"
+        required
+      >
+
+      <select name="bankName" required>
+        <option value="">Select bank or payment provider</option>
+        <option value="opay">OPay</option>
+        <option value="palmpay">PalmPay</option>
+        <option value="kuda">Kuda</option>
+        <option value="moniepoint">Moniepoint</option>
+        <option value="access bank">Access Bank</option>
+        <option value="first bank">First Bank</option>
+        <option value="gtbank">GTBank</option>
+        <option value="uba">UBA</option>
+        <option value="zenith bank">Zenith Bank</option>
+        <option value="fidelity bank">Fidelity Bank</option>
+        <option value="fcmb">FCMB</option>
+        <option value="stanbic ibtc">Stanbic IBTC</option>
+        <option value="sterling bank">Sterling Bank</option>
+        <option value="wema bank">Wema Bank</option>
+        <option value="union bank">Union Bank</option>
+        <option value="ecobank">Ecobank</option>
+        <option value="polaris bank">Polaris Bank</option>
+        <option value="keystone bank">Keystone Bank</option>
+        <option value="providus bank">Providus Bank</option>
+        <option value="jaiz bank">Jaiz Bank</option>
+        <option value="lotus bank">Lotus Bank</option>
+        <option value="tajbank">TAJBank</option>
+        <option value="premium trust bank">PremiumTrust Bank</option>
+        <option value="standard chartered bank">Standard Chartered</option>
+        <option value="globus bank">Globus Bank</option>
+        <option value="guaranty trust bank">Guaranty Trust Bank</option>
+        <option value="united bank for africa">United Bank for Africa</option>
+      </select>
+
+      <input
+        type="text"
+        name="accountNumber"
+        placeholder="10-digit account number"
+        inputmode="numeric"
+        pattern="[0-9]{10}"
+        maxlength="10"
+        required
+      >
+
+      <input
+        type="text"
+        name="accountName"
+        placeholder="Account holder name"
+        maxlength="100"
+        required
+      >
+
+      <button type="submit">Submit Withdrawal Request</button>
+    </form>
+
+    <div class="notice" id="withdrawalNotice"></div>
+  </div>
+
+  <h2 class="dashboard-heading">Your withdrawal history</h2>
+
+  <div id="withdrawalList" class="dashboard-card">
+    Loading your withdrawal requests...
+  </div>
+
+  <button type="button" class="secondary" onclick="showPage('dashboard')">
+    Back to Dashboard
+  </button>
+</section>
+
+  <section id="adminWithdrawals" hidden>
+    <h1>Admin Dashboard</h1>
+    <p class="description">Review and manage customer withdrawal requests.</p>
+
+    <div class="dashboard-card">
+      <strong>Manual payments</strong>
+      <p>Approve requests before transferring funds. After making a transfer, record its payment reference and mark the request as paid.</p>
+    </div>
+
+    <div id="adminWithdrawalList" class="dashboard-card">
+      Loading withdrawal requests...
+    </div>
+
+    <div class="notice" id="adminNotice"></div>
+
+    <button type="button" class="secondary"
+            onclick="showPage('dashboard')">
+      Back to Dashboard
+    </button>
+  </section>
+
   <footer>KC EARN &nbsp; • &nbsp; K.C. VENTURES</footer>
 </main>
 
 <script>
 function showPage(page) {
-  ['welcome', 'register', 'login', 'dashboard', 'transactions'].forEach(id => {
+  ['welcome', 'register', 'login', 'dashboard', 'transactions', 'withdrawals', 'adminWithdrawals'].forEach(id => {
     document.getElementById(id).hidden = id !== page;
   });
   window.scrollTo(0, 0);
@@ -284,6 +402,7 @@ function openDashboard(user) {
     'Welcome, ' + user.fullName + '!';
   document.getElementById('dashboardName').textContent = user.fullName;
   document.getElementById('dashboardEmail').textContent = user.email;
+  document.getElementById('adminCard').hidden = user.isAdmin !== true;
   showPage('dashboard');
   loadWallet();
 }
@@ -388,6 +507,295 @@ async function loadTransactions() {
   } catch (error) {
     list.textContent = error.message || 'Unable to load transactions. Please try again.';
     console.error('Transaction history error:', error);
+  }
+}
+
+async function submitWithdrawal(event) {
+  event.preventDefault();
+
+  const form = event.target;
+  const button = form.querySelector('button[type="submit"]');
+  const notice = document.getElementById('withdrawalNotice');
+
+  button.disabled = true;
+  button.textContent = 'Submitting request...';
+  notice.style.display = 'none';
+
+  try {
+    const result = await sendAccountRequest('/api/withdrawals', {
+      amountNaira: form.elements.amountNaira.value,
+      bankName: form.elements.bankName.value,
+      accountNumber: form.elements.accountNumber.value,
+      accountName: form.elements.accountName.value
+    });
+
+    form.reset();
+
+    showNotice(
+      'withdrawals',
+      result.message || 'Withdrawal request submitted successfully.',
+      true
+    );
+
+    await loadWithdrawals();
+    await loadWallet();
+  } catch (error) {
+    showNotice('withdrawals', error.message || 'Unable to submit withdrawal request.');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Submit Withdrawal Request';
+  }
+}
+
+async function openWithdrawals() {
+  showPage('withdrawals');
+  await loadWithdrawals();
+}
+
+async function loadWithdrawals() {
+  const list = document.getElementById('withdrawalList');
+  list.textContent = 'Loading your withdrawal requests...';
+
+  try {
+    const response = await fetch('/api/withdrawals', {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Could not load withdrawal requests.');
+    }
+
+    if (!Array.isArray(result.withdrawals)) {
+      throw new Error('Invalid withdrawal data.');
+    }
+
+    if (result.withdrawals.length === 0) {
+      list.textContent = 'You have not submitted any withdrawal requests yet.';
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    result.withdrawals.forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'dashboard-card';
+
+      const heading = document.createElement('strong');
+      heading.textContent = 'Withdrawal — ' + item.bankName;
+
+      const amount = document.createElement('h2');
+      amount.textContent = new Intl.NumberFormat('en-NG', {
+        style: 'currency',
+        currency: 'NGN'
+      }).format(Number(item.amountNaira));
+
+      const account = document.createElement('p');
+      account.textContent = item.accountName + ' •••• ' + item.accountLast4;
+
+      const status = document.createElement('p');
+      status.textContent = 'Status: ' + item.status.toUpperCase();
+
+      const reference = document.createElement('small');
+      reference.textContent = 'Reference: ' + item.reference;
+
+      const date = document.createElement('small');
+      const timestamp = new Date(item.createdAt);
+      date.textContent = Number.isFinite(timestamp.getTime())
+        ? timestamp.toLocaleString('en-NG')
+        : 'Date unavailable';
+
+      card.append(heading, amount, account, status, reference, date);
+      fragment.appendChild(card);
+    });
+
+    list.replaceChildren(fragment);
+  } catch (error) {
+    list.textContent = error.message || 'Unable to load withdrawal requests.';
+    console.error('Withdrawal history error:', error);
+  }
+}
+
+
+async function openAdminWithdrawals() {
+  showPage('adminWithdrawals');
+  await loadAdminWithdrawals();
+}
+
+async function loadAdminWithdrawals() {
+  const list = document.getElementById('adminWithdrawalList');
+  list.textContent = 'Loading withdrawal requests...';
+
+  try {
+    const response = await fetch('/api/admin/withdrawals', {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Could not load admin withdrawals.');
+    }
+
+    if (!Array.isArray(result.withdrawals)) {
+      throw new Error('Invalid withdrawal data.');
+    }
+
+    if (result.withdrawals.length === 0) {
+      list.textContent = 'There are no withdrawal requests yet.';
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    result.withdrawals.forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'dashboard-card';
+
+      const heading = document.createElement('h3');
+      heading.textContent = 'Withdrawal #' + item.id;
+
+      const customer = document.createElement('p');
+      customer.textContent = 'Customer: ' + item.userName + ' (' + item.userEmail + ')';
+
+      const amount = document.createElement('h2');
+      amount.textContent = new Intl.NumberFormat('en-NG', {
+        style: 'currency',
+        currency: 'NGN'
+      }).format(Number(item.amountNaira));
+
+      const bank = document.createElement('p');
+      bank.textContent = 'Bank/provider: ' + item.bankName;
+
+      const account = document.createElement('p');
+      account.textContent = 'Account number: ' + item.accountNumber;
+
+      const accountName = document.createElement('p');
+      accountName.textContent = 'Account name: ' + item.accountName;
+
+      const status = document.createElement('p');
+      status.textContent = 'Status: ' + String(item.status).toUpperCase();
+
+      const reference = document.createElement('small');
+      reference.textContent = 'Request reference: ' + item.reference;
+
+      const date = document.createElement('p');
+      const timestamp = new Date(item.createdAt);
+      date.textContent = 'Requested: ' +
+        (Number.isFinite(timestamp.getTime())
+          ? timestamp.toLocaleString('en-NG')
+          : 'Date unavailable');
+
+      card.append(
+        heading, customer, amount, bank, account,
+        accountName, status, reference, date
+      );
+
+      if (item.adminNote) {
+        const note = document.createElement('p');
+        note.textContent = 'Admin note: ' + item.adminNote;
+        card.appendChild(note);
+      }
+
+      if (item.paymentReference) {
+        const payment = document.createElement('p');
+        payment.textContent = 'Payment reference: ' + item.paymentReference;
+        card.appendChild(payment);
+      }
+
+      if (item.status === 'pending' || item.status === 'approved') {
+        const adminNote = document.createElement('input');
+        adminNote.type = 'text';
+        adminNote.placeholder = 'Optional admin note';
+        adminNote.maxLength = 255;
+        adminNote.dataset.adminNote = 'true';
+        card.appendChild(adminNote);
+      }
+
+      if (item.status === 'pending') {
+        const approve = document.createElement('button');
+        approve.type = 'button';
+        approve.textContent = 'Approve';
+        approve.addEventListener('click', () =>
+          adminWithdrawalAction(item.id, 'approve', card, approve)
+        );
+
+        const reject = document.createElement('button');
+        reject.type = 'button';
+        reject.textContent = 'Reject and Refund';
+        reject.className = 'secondary';
+        reject.addEventListener('click', () =>
+          adminWithdrawalAction(item.id, 'reject', card, reject)
+        );
+
+        card.append(approve, reject);
+      }
+
+      if (item.status === 'approved') {
+        const paymentReference = document.createElement('input');
+        paymentReference.type = 'text';
+        paymentReference.placeholder = 'Enter bank transfer payment reference';
+        paymentReference.maxLength = 100;
+        paymentReference.dataset.paymentReference = 'true';
+        card.appendChild(paymentReference);
+
+        const paid = document.createElement('button');
+        paid.type = 'button';
+        paid.textContent = 'Mark as Paid';
+        paid.addEventListener('click', () =>
+          adminWithdrawalAction(item.id, 'paid', card, paid)
+        );
+
+        card.appendChild(paid);
+      }
+
+      fragment.appendChild(card);
+    });
+
+    list.replaceChildren(fragment);
+  } catch (error) {
+    list.textContent = error.message || 'Unable to load admin withdrawals.';
+    console.error('Admin withdrawal error:', error);
+  }
+}
+
+async function adminWithdrawalAction(id, action, card, button) {
+  if (action === 'reject' &&
+      !window.confirm('Reject this withdrawal and refund the customer wallet?')) {
+    return;
+  }
+
+  const adminNote = card.querySelector('[data-admin-note]')?.value.trim() || '';
+  const paymentReference =
+    card.querySelector('[data-payment-reference]')?.value.trim() || '';
+
+  if (action === 'paid' && !paymentReference) {
+    showNotice('adminWithdrawals', 'Enter the payment reference before marking this request as paid.');
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = 'Processing...';
+
+  try {
+    const result = await sendAccountRequest(
+      '/api/admin/withdrawals/' + encodeURIComponent(id) + '/' + action,
+      { adminNote, paymentReference }
+    );
+
+    showNotice('adminWithdrawals', result.message || 'Withdrawal updated successfully.', true);
+    await loadAdminWithdrawals();
+  } catch (error) {
+    showNotice('adminWithdrawals', error.message || 'Unable to update withdrawal.');
+    button.disabled = false;
+    button.textContent =
+      action === 'paid' ? 'Mark as Paid' :
+      action === 'reject' ? 'Reject and Refund' : 'Approve';
   }
 }
 
