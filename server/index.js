@@ -41,6 +41,40 @@ async function initializeDatabase() {
 
   await pool.query('DELETE FROM sessions WHERE expires_at < NOW()');
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wallets (
+      user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      balance_kobo BIGINT NOT NULL DEFAULT 0 CHECK (balance_kobo >= 0),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wallet_transactions (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      transaction_type VARCHAR(10) NOT NULL
+        CHECK (transaction_type IN ('credit', 'debit')),
+      amount_kobo BIGINT NOT NULL CHECK (amount_kobo > 0),
+      description VARCHAR(255) NOT NULL,
+      reference VARCHAR(100) UNIQUE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS wallet_transactions_user_id_idx
+    ON wallet_transactions(user_id, created_at DESC)
+  `);
+
+  await pool.query(`
+    INSERT INTO wallets (user_id)
+    SELECT id FROM users
+    ON CONFLICT (user_id) DO NOTHING
+  `);
+
+
   console.log('KC Earn database and account tables ready.');
 }
 
@@ -228,6 +262,12 @@ const server = http.createServer(async (req, res) => {
       }
 
       const user = result.rows[0];
+
+      await pool.query(
+        'INSERT INTO wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
+        [user.id]
+      );
+
       await createSession(user.id, res);
 
       return sendJson(res, 201, {
@@ -271,6 +311,73 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         message: 'Login successful.',
         user: publicUser(user)
+      });
+    }
+
+
+    if (req.method === 'GET' && pathname === '/api/wallet') {
+      const user = await getLoggedInUser(req);
+
+      if (!user) {
+        return sendJson(res, 401, {
+          error: 'Please sign in.'
+        });
+      }
+
+      await pool.query(
+        'INSERT INTO wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
+        [user.id]
+      );
+
+      const result = await pool.query(
+        `SELECT balance_kobo::text AS balance_kobo,
+                (balance_kobo / 100.0)::numeric(20,2)::text AS balance_naira
+         FROM wallets
+         WHERE user_id = $1`,
+        [user.id]
+      );
+
+      const wallet = result.rows[0];
+
+      return sendJson(res, 200, {
+        wallet: {
+          balanceKobo: wallet.balance_kobo,
+          balanceNaira: wallet.balance_naira,
+          currency: 'NGN'
+        }
+      });
+    }
+
+    if (req.method === 'GET' && pathname === '/api/wallet/transactions') {
+      const user = await getLoggedInUser(req);
+
+      if (!user) {
+        return sendJson(res, 401, {
+          error: 'Please sign in.'
+        });
+      }
+
+      const result = await pool.query(
+        `SELECT id, transaction_type, amount_kobo::text AS amount_kobo,
+                (amount_kobo / 100.0)::numeric(20,2)::text AS amount_naira,
+                description, reference, created_at
+         FROM wallet_transactions
+         WHERE user_id = $1
+         ORDER BY created_at DESC, id DESC
+         LIMIT 50`,
+        [user.id]
+      );
+
+      return sendJson(res, 200, {
+        transactions: result.rows.map(transaction => ({
+          id: transaction.id,
+          type: transaction.transaction_type,
+          amountKobo: transaction.amount_kobo,
+          amountNaira: transaction.amount_naira,
+          description: transaction.description,
+          reference: transaction.reference,
+          createdAt: transaction.created_at
+        }))
       });
     }
 
