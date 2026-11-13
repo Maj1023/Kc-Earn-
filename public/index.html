@@ -78,6 +78,20 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
   background: #EAF1FF;
 }
 
+
+.message-panel{background:#fff;border:1px solid #E8EDF5;border-radius:15px;padding:15px;margin:12px 0}
+.message-panel h2{font-size:17px;margin:4px 0 12px}
+.message-list{display:grid;gap:8px}
+.message-item{width:100%;height:auto;min-height:58px;margin:0;padding:12px;text-align:left;background:#F4F7FC;color:#142B55;border:1px solid #E8EDF5;border-radius:12px}
+.message-item small{display:block;color:#68758C;font-weight:400;margin-top:5px}
+.message-thread{display:flex;flex-direction:column;gap:9px;max-height:360px;overflow-y:auto;padding:10px 0}
+.message-bubble{max-width:85%;padding:11px 13px;border-radius:13px;background:#F0F3F8;overflow-wrap:anywhere;white-space:pre-wrap}
+.message-bubble.mine{align-self:flex-end;background:#EAF1FF}
+.message-bubble small{display:block;color:#68758C;font-size:10px;margin-top:6px}
+#messageComposer{width:100%;min-height:90px;resize:vertical;border:1px solid #E1E7F0;border-radius:12px;padding:12px;font:14px Arial,Helvetica,sans-serif}
+.message-actions{display:flex;gap:8px;flex-wrap:wrap}
+.message-actions button{flex:1;min-width:110px}
+.message-empty{color:#68758C;font-size:13px;padding:10px 2px}
 </style>
 </head>
 <body>
@@ -174,6 +188,13 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
       <small>View withdrawal requests</small>
     </div>
 
+    <div class="dashboard-card" onclick="openMessages()" role="button" tabindex="0"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMessages();}">
+      <span class="emoji">💬</span>
+      <strong>Messages</strong>
+      <small>Chat privately with other KC Earn customers</small>
+    </div>
+
     <div id="adminCard" class="dashboard-card" hidden
          onclick="openAdminWithdrawals()" role="button" tabindex="0">
       <span class="emoji">🛡️</span>
@@ -186,7 +207,51 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
   <div class="notice" id="dashboardNotice"></div>
 </section>
 
-<section id="transactions" hidden>
+<section id="messages" hidden>
+    <h1>Messages</h1>
+    <p class="description">Find other KC Earn customers and chat privately.</p>
+
+    <button type="button" class="secondary" onclick="showPage('dashboard')">
+      Back to Dashboard
+    </button>
+
+    <div class="message-panel">
+      <h2>Find customers</h2>
+      <input id="messageUserSearch" type="search" maxlength="40"
+             placeholder="Enter a customer's name"
+             autocomplete="off" oninput="searchMessageUsers()">
+      <div id="messageSearchResults" class="message-list" aria-live="polite">
+        <p class="message-empty">Enter at least two letters to search.</p>
+      </div>
+    </div>
+
+    <div class="message-panel">
+      <h2>Your inbox</h2>
+      <button type="button" class="secondary"
+              onclick="loadMessageConversations()">Refresh inbox</button>
+      <div id="messageInbox" class="message-list" aria-live="polite">
+        <p class="message-empty">Your conversations will appear here.</p>
+      </div>
+    </div>
+
+    <div id="messageChatPanel" class="message-panel" hidden>
+      <h2 id="messageChatTitle">Conversation</h2>
+      <div class="message-actions">
+        <button type="button" class="secondary"
+                onclick="blockMessageUser()">Block customer</button>
+      </div>
+      <div id="messageThread" class="message-thread" aria-live="polite"></div>
+      <textarea id="messageComposer" maxlength="1000"
+                placeholder="Write your message..."
+                aria-label="Write your message"></textarea>
+      <button type="button" id="sendMessageButton"
+              onclick="sendChatMessage()">Send message</button>
+    </div>
+
+    <div class="notice" id="messagesNotice"></div>
+  </section>
+
+  <section id="transactions" hidden>
   <h1>Transaction History</h1>
   <p class="description">Your latest wallet activity.</p>
 
@@ -329,6 +394,18 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
       Loading withdrawal requests...
     </div>
 
+    <div class="dashboard-card">
+      <h2>Customer Message Reports</h2>
+      <p>Review messages reported by customers.</p>
+      <button type="button" class="secondary"
+              onclick="loadAdminMessageReports()">
+        Refresh Reports
+      </button>
+      <div id="adminMessageReportList">
+        Loading message reports...
+      </div>
+    </div>
+
     <div class="notice" id="adminNotice"></div>
 
     <button type="button" class="secondary"
@@ -342,7 +419,19 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
 
 <script>
 function showPage(page) {
-  ['welcome', 'register', 'login', 'dashboard', 'transactions', 'withdrawals', 'adminWithdrawals'].forEach(id => {
+  if (page !== 'messages') {
+    messageThreadRequest++;
+    activeMessageConversationId = null;
+    activeMessageUserId = null;
+    activeMessageUserName = '';
+
+    const thread = document.getElementById('messageThread');
+    const composer = document.getElementById('messageComposer');
+    if (thread) thread.textContent = '';
+    if (composer) composer.value = '';
+  }
+
+  ['welcome', 'register', 'login', 'dashboard', 'messages', 'transactions', 'withdrawals', 'adminWithdrawals'].forEach(id => {
     document.getElementById(id).hidden = id !== page;
   });
   window.scrollTo(0, 0);
@@ -426,6 +515,7 @@ async function loginAccount(event) {
 
 
 function openDashboard(user) {
+  messagingCurrentUserId = String(user.id);
   document.getElementById('dashboardWelcome').textContent =
     'Welcome, ' + user.fullName + '!';
   document.getElementById('dashboardName').textContent = user.fullName;
@@ -738,9 +828,128 @@ async function openAdminWithdrawals() {
   showPage('adminWithdrawals');
   await Promise.all([
     loadAdminRewardSettings(),
-    loadAdminWithdrawals()
+    loadAdminWithdrawals(),
+    loadAdminMessageReports()
   ]);
 }
+
+async function loadAdminMessageReports() {
+  const list = document.getElementById('adminMessageReportList');
+  list.textContent = 'Loading message reports...';
+
+  try {
+    const result = await getMessageData('/api/admin/message-reports');
+
+    if (!Array.isArray(result.reports)) {
+      throw new Error('Invalid message report data.');
+    }
+
+    if (result.reports.length === 0) {
+      list.textContent = 'There are no message reports yet.';
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    result.reports.forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'dashboard-card';
+
+      const heading = document.createElement('h3');
+      heading.textContent = 'Message Report #' + item.id;
+
+      const status = document.createElement('p');
+      status.textContent = 'Status: ' + String(item.status).toUpperCase();
+
+      const reporter = document.createElement('p');
+      reporter.textContent = 'Reported by: ' +
+        (item.reporter_name || 'Unknown customer');
+
+      const sender = document.createElement('p');
+      sender.textContent = 'Message sender: ' +
+        (item.sender_name || 'Unknown customer');
+
+      const message = document.createElement('p');
+      message.textContent = 'Reported message: ' + (item.message_body || '');
+
+      const reason = document.createElement('p');
+      reason.textContent = 'Report reason: ' + item.reason;
+
+      const date = document.createElement('p');
+      const timestamp = new Date(item.created_at);
+      date.textContent = 'Reported: ' +
+        (Number.isFinite(timestamp.getTime())
+          ? timestamp.toLocaleString('en-NG')
+          : 'Date unavailable');
+
+      card.append(heading, status, reporter, sender, message, reason, date);
+
+      if (item.status === 'reviewed') {
+        const reviewed = document.createElement('p');
+        const reviewedDate = item.reviewed_at
+          ? new Date(item.reviewed_at)
+          : null;
+
+        reviewed.textContent = 'Reviewed by: ' +
+          (item.reviewer_name || 'Administrator') +
+          (reviewedDate && Number.isFinite(reviewedDate.getTime())
+            ? ' on ' + reviewedDate.toLocaleString('en-NG')
+            : '');
+
+        card.appendChild(reviewed);
+      }
+
+      if (item.status === 'pending') {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Mark Reviewed';
+        button.addEventListener('click', () =>
+          adminMessageReportAction(item.id, button)
+        );
+        card.appendChild(button);
+      }
+
+      fragment.appendChild(card);
+    });
+
+    list.replaceChildren(fragment);
+  } catch (error) {
+    list.textContent = error.message ||
+      'Unable to load message reports.';
+  }
+}
+
+async function adminMessageReportAction(reportId, button) {
+  if (!confirm('Mark this message report as reviewed?')) return;
+
+  button.disabled = true;
+  button.textContent = 'Saving...';
+
+  try {
+    await sendAccountRequest(
+      '/api/admin/message-reports/' +
+        encodeURIComponent(reportId) + '/review',
+      {}
+    );
+
+    showNotice(
+      'adminWithdrawals',
+      'Message report marked as reviewed.',
+      true
+    );
+
+    await loadAdminMessageReports();
+  } catch (error) {
+    showNotice(
+      'adminWithdrawals',
+      error.message || 'Unable to update message report.'
+    );
+
+    button.disabled = false;
+    button.textContent = 'Mark Reviewed';
+  }
+}
+
 
 async function loadAdminWithdrawals() {
   const list = document.getElementById('adminWithdrawalList');
@@ -916,6 +1125,378 @@ async function adminWithdrawalAction(id, action, card, button) {
   }
 }
 
+
+let messagingCurrentUserId = null;
+let activeMessageConversationId = null;
+let activeMessageUserId = null;
+let activeMessageUserName = '';
+let messageSearchTimer = null;
+let messageSearchRequest = 0;
+let messageInboxRequest = 0;
+let messageThreadRequest = 0;
+
+async function getMessageData(url) {
+  const response = await fetch(url, {
+    method: 'GET',
+    credentials: 'same-origin',
+    cache: 'no-store'
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.error || 'Could not load messages.');
+  }
+
+  return result;
+}
+
+function clearMessagingState() {
+  messagingCurrentUserId = null;
+  activeMessageConversationId = null;
+  activeMessageUserId = null;
+  activeMessageUserName = '';
+  messageSearchRequest++;
+  messageInboxRequest++;
+  messageThreadRequest++;
+
+  if (messageSearchTimer) {
+    clearTimeout(messageSearchTimer);
+    messageSearchTimer = null;
+  }
+
+  const search = document.getElementById('messageUserSearch');
+  const results = document.getElementById('messageSearchResults');
+  const inbox = document.getElementById('messageInbox');
+  const thread = document.getElementById('messageThread');
+  const composer = document.getElementById('messageComposer');
+  const chat = document.getElementById('messageChatPanel');
+
+  if (search) search.value = '';
+  if (results) results.textContent = 'Enter at least two letters to search.';
+  if (inbox) inbox.textContent = '';
+  if (thread) thread.textContent = '';
+  if (composer) composer.value = '';
+  if (chat) chat.hidden = true;
+}
+
+function openMessages() {
+  showPage('messages');
+  messageThreadRequest++;
+  activeMessageConversationId = null;
+  activeMessageUserId = null;
+  activeMessageUserName = '';
+  document.getElementById('messagesNotice').textContent = '';
+  document.getElementById('messageChatPanel').hidden = true;
+  document.getElementById('messageThread').textContent = '';
+  document.getElementById('messageComposer').value = '';
+  loadMessageConversations();
+}
+
+async function loadMessageConversations() {
+  const inbox = document.getElementById('messageInbox');
+  const requestNumber = ++messageInboxRequest;
+  inbox.textContent = 'Loading your inbox...';
+
+  try {
+    const result = await getMessageData('/api/messages/conversations');
+
+    if (requestNumber !== messageInboxRequest) return;
+
+    inbox.textContent = '';
+
+    const conversations = result.conversations || [];
+
+    if (!conversations.length) {
+      inbox.textContent = 'No conversations yet. Search for a customer to start chatting.';
+      inbox.className = 'message-list message-empty';
+      return;
+    }
+
+    inbox.className = 'message-list';
+
+    conversations.forEach(conversation => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'message-item';
+
+      const name = document.createElement('strong');
+      name.textContent = conversation.full_name || 'KC Earn customer';
+
+      const preview = document.createElement('small');
+      preview.textContent = conversation.last_message || 'No messages yet';
+
+      if (Number(conversation.unread_count) > 0) {
+        preview.textContent += ' • ' + conversation.unread_count + ' unread';
+      }
+
+      button.appendChild(name);
+      button.appendChild(preview);
+
+      button.addEventListener('click', () => {
+        openMessageConversation(
+          conversation.id,
+          conversation.user_id,
+          conversation.full_name
+        );
+      });
+
+      inbox.appendChild(button);
+    });
+  } catch (error) {
+    if (requestNumber === messageInboxRequest) {
+      inbox.textContent = error.message;
+    }
+  }
+}
+
+function searchMessageUsers() {
+  const query = document.getElementById('messageUserSearch').value.trim();
+  const resultsBox = document.getElementById('messageSearchResults');
+  const requestNumber = ++messageSearchRequest;
+
+  if (messageSearchTimer) {
+    clearTimeout(messageSearchTimer);
+  }
+
+  if (query.length < 2) {
+    resultsBox.textContent = 'Enter at least two letters to search.';
+    return;
+  }
+
+  resultsBox.textContent = 'Searching customers...';
+
+  messageSearchTimer = setTimeout(async () => {
+    try {
+      const result = await getMessageData(
+        '/api/messages/users?q=' + encodeURIComponent(query)
+      );
+
+      if (requestNumber !== messageSearchRequest) return;
+
+      resultsBox.textContent = '';
+      const users = result.users || [];
+
+      if (!users.length) {
+        resultsBox.textContent = 'No matching customers found.';
+        return;
+      }
+
+      users.forEach(user => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'message-item';
+        button.textContent = user.full_name || 'KC Earn customer';
+
+        button.addEventListener('click', () => {
+          startMessageConversation(user.id, user.full_name);
+        });
+
+        resultsBox.appendChild(button);
+      });
+    } catch (error) {
+      if (requestNumber === messageSearchRequest) {
+        resultsBox.textContent = error.message;
+      }
+    }
+  }, 350);
+}
+
+async function startMessageConversation(userId, userName) {
+  try {
+    const result = await sendAccountRequest(
+      '/api/messages/conversations',
+      { recipientId: userId }
+    );
+
+    if (!result.conversationId) {
+      throw new Error('The conversation could not be opened.');
+    }
+
+    document.getElementById('messageUserSearch').value = '';
+    document.getElementById('messageSearchResults').textContent =
+      'Enter at least two letters to search.';
+
+    await openMessageConversation(
+      result.conversationId,
+      userId,
+      userName
+    );
+
+    await loadMessageConversations();
+  } catch (error) {
+    showNotice('messages', error.message);
+  }
+}
+
+async function openMessageConversation(conversationId, userId, userName) {
+  activeMessageConversationId = String(conversationId);
+  activeMessageUserId = String(userId);
+  activeMessageUserName = userName || 'KC Earn customer';
+
+  document.getElementById('messageChatTitle').textContent =
+    'Chat with ' + activeMessageUserName;
+
+  document.getElementById('messageChatPanel').hidden = false;
+  document.getElementById('messageThread').textContent =
+    'Loading conversation...';
+
+  await loadMessageThread();
+}
+
+async function loadMessageThread() {
+  if (!activeMessageConversationId) return;
+
+  const thread = document.getElementById('messageThread');
+  const conversationId = activeMessageConversationId;
+  const requestNumber = ++messageThreadRequest;
+
+  try {
+    const result = await getMessageData(
+      '/api/messages/conversations/' + encodeURIComponent(conversationId)
+    );
+
+    if (
+      requestNumber !== messageThreadRequest ||
+      conversationId !== activeMessageConversationId
+    ) return;
+
+    thread.textContent = '';
+    const messages = result.messages || [];
+
+    if (!messages.length) {
+      thread.textContent = 'This conversation is empty. Send the first message.';
+      return;
+    }
+
+    messages.forEach(message => {
+      const mine =
+        String(message.sender_id) === String(messagingCurrentUserId);
+
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble' + (mine ? ' mine' : '');
+
+      const body = document.createElement('div');
+      body.textContent = message.body;
+      bubble.appendChild(body);
+
+      const details = document.createElement('small');
+      const date = new Date(message.created_at);
+
+      details.textContent = (mine ? 'You' : message.sender_name || 'Customer') +
+        ' • ' + (Number.isNaN(date.getTime()) ? '' : date.toLocaleString());
+
+      bubble.appendChild(details);
+
+      if (!mine) {
+        const reportButton = document.createElement('button');
+        reportButton.type = 'button';
+        reportButton.className = 'secondary';
+        reportButton.textContent = 'Report message';
+        reportButton.addEventListener('click', () => {
+          reportMessage(message.id);
+        });
+        bubble.appendChild(reportButton);
+      }
+
+      thread.appendChild(bubble);
+    });
+
+    thread.scrollTop = thread.scrollHeight;
+  } catch (error) {
+    if (
+      requestNumber === messageThreadRequest &&
+      conversationId === activeMessageConversationId
+    ) {
+      thread.textContent = error.message;
+    }
+  }
+}
+
+async function sendChatMessage() {
+  const composer = document.getElementById('messageComposer');
+  const button = document.getElementById('sendMessageButton');
+  const body = composer.value.trim();
+  const conversationId = activeMessageConversationId;
+
+  if (!conversationId) {
+    showNotice('messages', 'Open a conversation first.');
+    return;
+  }
+
+  if (!body) {
+    showNotice('messages', 'Please write a message first.');
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = 'Sending...';
+
+  try {
+    await sendAccountRequest(
+      '/api/messages/conversations/' +
+        encodeURIComponent(conversationId),
+      { message: body }
+    );
+
+    if (activeMessageConversationId === conversationId) {
+      if (composer.value.trim() === body) {
+        composer.value = '';
+      }
+      await loadMessageThread();
+    }
+
+    await loadMessageConversations();
+  } catch (error) {
+    showNotice('messages', error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Send message';
+  }
+}
+
+async function blockMessageUser() {
+  if (!activeMessageUserId) return;
+
+  if (!window.confirm('Block this customer? You will no longer be able to message each other.')) {
+    return;
+  }
+
+  try {
+    const result = await sendAccountRequest('/api/messages/block', {
+      userId: activeMessageUserId
+    });
+
+    document.getElementById('messageChatPanel').hidden = true;
+    document.getElementById('messageThread').textContent = '';
+    activeMessageConversationId = null;
+    activeMessageUserId = null;
+    activeMessageUserName = '';
+
+    showNotice('messages', result.message || 'Customer blocked.', true);
+    await loadMessageConversations();
+  } catch (error) {
+    showNotice('messages', error.message);
+  }
+}
+
+async function reportMessage(messageId) {
+  const reason = window.prompt('Why are you reporting this message?');
+
+  if (reason === null || !reason.trim()) return;
+
+  try {
+    const result = await sendAccountRequest('/api/messages/report', {
+      messageId,
+      reason: reason.trim()
+    });
+
+    showNotice('messages', result.message || 'Report submitted.', true);
+  } catch (error) {
+    showNotice('messages', error.message);
+  }
+}
+
 async function loadCurrentUser() {
   try {
     const response = await fetch('/api/me', {
@@ -933,12 +1514,13 @@ async function loadCurrentUser() {
 }
 
 async function logoutAccount() {
-  const button = document.querySelector('#dashboard button');
+  const button = document.querySelector('#dashboard button[onclick="logoutAccount()"]');
   button.disabled = true;
   button.textContent = 'Signing out...';
 
   try {
     await sendAccountRequest('/api/logout', {});
+    clearMessagingState();
     showPage('welcome');
   } catch (error) {
     showNotice('dashboard', error.message);

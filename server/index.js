@@ -11,7 +11,9 @@ const SESSION_MS = SESSION_DAYS * 24 * 60 * 60 * 1000;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: true },
+  ssl: process.env.DATABASE_SSL === 'false'
+    ? false
+    : { rejectUnauthorized: true },
   max: 5,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
@@ -216,6 +218,146 @@ async function initializeDatabase() {
       changed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
       changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS message_conversations (
+      id BIGSERIAL PRIMARY KEY,
+      user_one_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_two_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (user_one_id < user_two_id),
+      UNIQUE (user_one_id, user_two_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id BIGSERIAL PRIMARY KEY,
+      conversation_id BIGINT NOT NULL
+        REFERENCES message_conversations(id) ON DELETE CASCADE,
+      sender_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body VARCHAR(1000) NOT NULL
+        CHECK (length(btrim(body)) BETWEEN 1 AND 1000),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      read_at TIMESTAMPTZ
+    )
+  `);
+
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION kc_earn_validate_message_participant()
+    RETURNS TRIGGER AS $function$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM message_conversations c
+        WHERE c.id = NEW.conversation_id
+          AND (
+            c.user_one_id = NEW.sender_id
+            OR c.user_two_id = NEW.sender_id
+          )
+      ) THEN
+        RAISE EXCEPTION 'Message sender must belong to the conversation';
+      END IF;
+
+      RETURN NEW;
+    END;
+    $function$ LANGUAGE plpgsql
+  `);
+
+  await pool.query(`
+    DO $migration$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'messages_sender_participant_trigger'
+          AND tgrelid = 'messages'::regclass
+      ) THEN
+        CREATE TRIGGER messages_sender_participant_trigger
+        BEFORE INSERT OR UPDATE ON messages
+        FOR EACH ROW
+        EXECUTE FUNCTION kc_earn_validate_message_participant();
+      END IF;
+    END;
+    $migration$;
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS messages_conversation_created_idx
+    ON messages(conversation_id, created_at DESC, id DESC)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS messages_unread_idx
+    ON messages(conversation_id, sender_id, read_at)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS message_conversations_user_one_idx
+    ON message_conversations(user_one_id, updated_at DESC)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS message_conversations_user_two_idx
+    ON message_conversations(user_two_id, updated_at DESC)
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS message_blocks (
+      blocker_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      blocked_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (blocker_id, blocked_id),
+      CHECK (blocker_id <> blocked_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS message_reports (
+      id BIGSERIAL PRIMARY KEY,
+      reporter_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      message_id BIGINT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      reason VARCHAR(500) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (reporter_id, message_id),
+      CHECK (length(btrim(reason)) BETWEEN 1 AND 500)
+    )
+  `);
+
+  await pool.query(`
+    ALTER TABLE message_reports
+    ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'
+  `);
+
+  await pool.query(`
+    ALTER TABLE message_reports
+    ADD COLUMN IF NOT EXISTS reviewed_by BIGINT
+    REFERENCES users(id) ON DELETE SET NULL
+  `);
+
+  await pool.query(`
+    ALTER TABLE message_reports
+    ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ
+  `);
+
+  await pool.query(`
+    DO $migration$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'message_reports_status_check'
+          AND conrelid = 'message_reports'::regclass
+      ) THEN
+        ALTER TABLE message_reports
+        ADD CONSTRAINT message_reports_status_check
+        CHECK (status IN ('pending', 'reviewed'));
+      END IF;
+    END;
+    $migration$;
   `);
 
   console.log('KC Earn database and account tables ready.');
@@ -1122,6 +1264,542 @@ const server = http.createServer(async (req, res) => {
           reference: item.reference,
           createdAt: item.created_at
         }))
+      });
+    }
+
+    if (req.method === 'GET' && pathname === '/api/messages/users') {
+      const user = await getLoggedInUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Please sign in.' });
+
+      const search = new URL(req.url, 'http://localhost').searchParams.get('q');
+      const query = typeof search === 'string' ? search.trim() : '';
+
+      if (query.length < 2 || query.length > 40) {
+        return sendJson(res, 400, { error: 'Search must contain 2 to 40 characters.' });
+      }
+
+      const result = await pool.query(
+        `SELECT u.id::text AS id, u.full_name
+         FROM users u
+         WHERE u.id <> $1
+           AND u.full_name ILIKE $2
+           AND NOT EXISTS (
+             SELECT 1 FROM message_blocks b
+             WHERE (b.blocker_id = $1 AND b.blocked_id = u.id)
+                OR (b.blocker_id = u.id AND b.blocked_id = $1)
+           )
+         ORDER BY u.full_name ASC
+         LIMIT 10`,
+        [user.id, query + '%']
+      );
+
+      return sendJson(res, 200, { users: result.rows });
+    }
+
+    if (req.method === 'GET' && pathname === '/api/messages/conversations') {
+      const user = await getLoggedInUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Please sign in.' });
+
+      const result = await pool.query(
+        `SELECT
+           c.id::text AS id,
+           other.id::text AS user_id,
+           other.full_name,
+           latest.body AS last_message,
+           latest.created_at AS last_message_at,
+           COALESCE(unread.total, 0)::int AS unread_count
+         FROM message_conversations c
+         JOIN users other
+           ON other.id = CASE
+             WHEN c.user_one_id = $1 THEN c.user_two_id
+             ELSE c.user_one_id
+           END
+         LEFT JOIN LATERAL (
+           SELECT body, created_at
+           FROM messages
+           WHERE conversation_id = c.id
+           ORDER BY created_at DESC, id DESC
+           LIMIT 1
+         ) latest ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*) AS total
+           FROM messages
+           WHERE conversation_id = c.id
+             AND sender_id = other.id
+             AND read_at IS NULL
+         ) unread ON TRUE
+         WHERE c.user_one_id = $1 OR c.user_two_id = $1
+         ORDER BY COALESCE(latest.created_at, c.updated_at) DESC
+         LIMIT 50`,
+        [user.id]
+      );
+
+      return sendJson(res, 200, { conversations: result.rows });
+    }
+
+    if (req.method === 'POST' && pathname === '/api/messages/conversations') {
+      const user = await getLoggedInUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Please sign in.' });
+
+      const body = await readJson(req);
+
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return sendJson(res, 400, {
+          error: 'Request body must be a JSON object.'
+        });
+      }
+
+      const recipientId = String(body.recipientId || '');
+
+      if (!/^[1-9]\d{0,17}$/.test(recipientId) ||
+          BigInt(recipientId) > 9223372036854775807n) {
+        return sendJson(res, 400, { error: 'Invalid recipient.' });
+      }
+
+      if (BigInt(recipientId) === BigInt(user.id)) {
+        return sendJson(res, 400, { error: 'You cannot message yourself.' });
+      }
+
+      const first = BigInt(user.id) < BigInt(recipientId)
+        ? user.id : recipientId;
+      const second = BigInt(user.id) < BigInt(recipientId)
+        ? recipientId : user.id;
+
+      const client = await pool.connect();
+
+      try {
+        await client.query('BEGIN');
+
+        await client.query(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+          ['kc-earn-message-pair:' + first + ':' + second]
+        );
+
+        const recipient = await client.query(
+          'SELECT id FROM users WHERE id = $1',
+          [recipientId]
+        );
+
+        if (!recipient.rowCount) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 404, { error: 'Customer not found.' });
+        }
+
+        const blocked = await client.query(
+          `SELECT 1 FROM message_blocks
+           WHERE (blocker_id = $1 AND blocked_id = $2)
+              OR (blocker_id = $2 AND blocked_id = $1)
+           LIMIT 1`,
+          [user.id, recipientId]
+        );
+
+        if (blocked.rowCount) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 403, {
+            error: 'Messaging is unavailable for this customer.'
+          });
+        }
+
+        const result = await client.query(
+          `INSERT INTO message_conversations (user_one_id, user_two_id)
+           VALUES ($1, $2)
+           ON CONFLICT (user_one_id, user_two_id) DO NOTHING
+           RETURNING id::text AS id`,
+          [first, second]
+        );
+
+        let conversationId;
+
+        if (result.rowCount) {
+          conversationId = result.rows[0].id;
+        } else {
+          const existing = await client.query(
+            `SELECT id::text AS id
+             FROM message_conversations
+             WHERE user_one_id = $1 AND user_two_id = $2`,
+            [first, second]
+          );
+
+          if (!existing.rowCount) {
+            throw new Error('Conversation could not be created or retrieved.');
+          }
+
+          conversationId = existing.rows[0].id;
+        }
+
+        await client.query('COMMIT');
+
+        return sendJson(res, 200, { conversationId });
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+
+    const messageConversationMatch =
+      pathname.match(/^\/api\/messages\/conversations\/([1-9]\d{0,17})$/);
+
+    if (
+      messageConversationMatch &&
+      BigInt(messageConversationMatch[1]) <= 9223372036854775807n &&
+      req.method === 'GET'
+    ) {
+      const user = await getLoggedInUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Please sign in.' });
+
+      const conversationId = messageConversationMatch[1];
+
+      const conversation = await pool.query(
+        `SELECT id, user_one_id, user_two_id
+         FROM message_conversations
+         WHERE id = $1 AND (user_one_id = $2 OR user_two_id = $2)`,
+        [conversationId, user.id]
+      );
+
+      if (!conversation.rowCount) {
+        return sendJson(res, 404, { error: 'Conversation not found.' });
+      }
+
+      await pool.query(
+        `UPDATE messages
+         SET read_at = NOW()
+         WHERE conversation_id = $1
+           AND sender_id <> $2
+           AND read_at IS NULL`,
+        [conversationId, user.id]
+      );
+
+      const result = await pool.query(
+        `SELECT id, sender_id, sender_name, body, created_at, read_at
+         FROM (
+           SELECT m.id AS sort_id, m.id::text AS id,
+                  m.sender_id::text AS sender_id,
+                  u.full_name AS sender_name, m.body, m.created_at, m.read_at
+           FROM messages m
+           JOIN users u ON u.id = m.sender_id
+           WHERE m.conversation_id = $1
+           ORDER BY m.created_at DESC, m.id DESC
+           LIMIT 50
+         ) recent
+         ORDER BY created_at ASC, sort_id ASC`,
+        [conversationId]
+      );
+
+      return sendJson(res, 200, { messages: result.rows });
+    }
+
+    if (
+      messageConversationMatch &&
+      BigInt(messageConversationMatch[1]) <= 9223372036854775807n &&
+      req.method === 'POST'
+    ) {
+      const user = await getLoggedInUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Please sign in.' });
+
+      const conversationId = messageConversationMatch[1];
+      const body = await readJson(req);
+
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return sendJson(res, 400, {
+          error: 'Request body must be a JSON object.'
+        });
+      }
+
+      const message = typeof body.message === 'string' ? body.message.trim() : '';
+
+      if (!message || message.length > 1000) {
+        return sendJson(res, 400, { error: 'Message must contain 1 to 1000 characters.' });
+      }
+
+      const client = await pool.connect();
+
+      try {
+        await client.query('BEGIN');
+
+        await client.query(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+          ['kc-earn-message-sender:' + user.id]
+        );
+
+        const conversation = await client.query(
+          `SELECT user_one_id, user_two_id
+           FROM message_conversations
+           WHERE id = $1 AND (user_one_id = $2 OR user_two_id = $2)`,
+          [conversationId, user.id]
+        );
+
+        if (!conversation.rowCount) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 404, { error: 'Conversation not found.' });
+        }
+
+        const otherId = String(
+          BigInt(conversation.rows[0].user_one_id) === BigInt(user.id)
+            ? conversation.rows[0].user_two_id
+            : conversation.rows[0].user_one_id
+        );
+
+        const lowId = BigInt(user.id) < BigInt(otherId)
+          ? user.id : otherId;
+        const highId = BigInt(user.id) < BigInt(otherId)
+          ? otherId : user.id;
+
+        await client.query(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+          ['kc-earn-message-pair:' + lowId + ':' + highId]
+        );
+
+        const blocked = await client.query(
+          `SELECT 1 FROM message_blocks
+           WHERE (blocker_id = $1 AND blocked_id = $2)
+              OR (blocker_id = $2 AND blocked_id = $1)
+           LIMIT 1`,
+          [user.id, otherId]
+        );
+
+        if (blocked.rowCount) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 403, {
+            error: 'You cannot send messages in this conversation.'
+          });
+        }
+
+        const recent = await client.query(
+          `SELECT COUNT(*)::int AS total
+           FROM messages
+           WHERE sender_id = $1
+             AND created_at > NOW() - INTERVAL '10 seconds'`,
+          [user.id]
+        );
+
+        if (recent.rows[0].total >= 5) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 429, {
+            error: 'Please wait before sending more messages.'
+          });
+        }
+
+        const result = await client.query(
+          `WITH inserted AS (
+             INSERT INTO messages (conversation_id, sender_id, body)
+             VALUES ($1, $2, $3)
+             RETURNING id::text AS id, sender_id::text AS sender_id,
+                       body, created_at, read_at
+           ),
+           updated AS (
+             UPDATE message_conversations
+             SET updated_at = NOW()
+             WHERE id = $1
+             RETURNING id
+           )
+           SELECT inserted.*
+           FROM inserted
+           CROSS JOIN updated`,
+          [conversationId, user.id, message]
+        );
+
+        if (!result.rowCount) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 404, { error: 'Conversation not found.' });
+        }
+
+        await client.query('COMMIT');
+
+        return sendJson(res, 201, { message: result.rows[0] });
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+
+    if (req.method === 'POST' && pathname === '/api/messages/block') {
+      const user = await getLoggedInUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Please sign in.' });
+
+      const body = await readJson(req);
+
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return sendJson(res, 400, {
+          error: 'Request body must be a JSON object.'
+        });
+      }
+
+      const blockedId = String(body.userId || '');
+
+      if (!/^[1-9]\d{0,17}$/.test(blockedId) ||
+          BigInt(blockedId) > 9223372036854775807n ||
+          BigInt(blockedId) === BigInt(user.id)) {
+        return sendJson(res, 400, { error: 'Invalid customer.' });
+      }
+
+      const lowId = BigInt(user.id) < BigInt(blockedId)
+        ? user.id : blockedId;
+      const highId = BigInt(user.id) < BigInt(blockedId)
+        ? blockedId : user.id;
+
+      const client = await pool.connect();
+
+      try {
+        await client.query('BEGIN');
+
+        await client.query(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+          ['kc-earn-message-pair:' + lowId + ':' + highId]
+        );
+
+        const target = await client.query(
+          'SELECT id FROM users WHERE id = $1',
+          [blockedId]
+        );
+
+        if (!target.rowCount) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 404, { error: 'Customer not found.' });
+        }
+
+        await client.query(
+          `INSERT INTO message_blocks (blocker_id, blocked_id)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING`,
+          [user.id, blockedId]
+        );
+
+        await client.query('COMMIT');
+
+        return sendJson(res, 200, { message: 'Customer blocked.' });
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+
+    if (req.method === 'POST' && pathname === '/api/messages/report') {
+      const user = await getLoggedInUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Please sign in.' });
+
+      const body = await readJson(req);
+
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return sendJson(res, 400, {
+          error: 'Request body must be a JSON object.'
+        });
+      }
+
+      const messageId = String(body.messageId || '');
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+
+      if (!/^[1-9]\d{0,17}$/.test(messageId) ||
+          BigInt(messageId) > 9223372036854775807n ||
+          !reason || reason.length > 500) {
+        return sendJson(res, 400, { error: 'Please provide a valid message and report reason.' });
+      }
+
+      const reported = await pool.query(
+        `SELECT m.id
+         FROM messages m
+         JOIN message_conversations c ON c.id = m.conversation_id
+         WHERE m.id = $1
+           AND m.sender_id <> $2
+           AND (c.user_one_id = $2 OR c.user_two_id = $2)`,
+        [messageId, user.id]
+      );
+
+      if (!reported.rowCount) {
+        return sendJson(res, 404, { error: 'Reportable message not found.' });
+      }
+
+      const result = await pool.query(
+        `INSERT INTO message_reports (reporter_id, message_id, reason)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (reporter_id, message_id) DO NOTHING
+         RETURNING id`,
+        [user.id, messageId, reason]
+      );
+
+      if (!result.rowCount) {
+        return sendJson(res, 409, { error: 'You have already reported this message.' });
+      }
+
+      return sendJson(res, 201, { message: 'Report submitted.' });
+    }
+
+    if (req.method === 'GET' && pathname === '/api/admin/message-reports') {
+      const admin = await requireAdmin(req, res);
+      if (!admin) return;
+
+      const result = await pool.query(
+        `SELECT
+           mr.id::text AS id,
+           mr.reason,
+           mr.status,
+           mr.created_at,
+           mr.reviewed_at,
+           reporter.full_name AS reporter_name,
+           sender.full_name AS sender_name,
+           sender.id::text AS sender_id,
+           m.body AS message_body,
+           m.created_at AS message_created_at,
+           reviewer.full_name AS reviewer_name
+         FROM message_reports mr
+         JOIN users reporter ON reporter.id = mr.reporter_id
+         JOIN messages m ON m.id = mr.message_id
+         JOIN users sender ON sender.id = m.sender_id
+         LEFT JOIN users reviewer ON reviewer.id = mr.reviewed_by
+         ORDER BY
+           CASE WHEN mr.status = 'pending' THEN 0 ELSE 1 END,
+           mr.created_at DESC
+         LIMIT 100`
+      );
+
+      return sendJson(res, 200, { reports: result.rows });
+    }
+
+    const messageReportReviewMatch =
+      pathname.match(/^\/api\/admin\/message-reports\/([1-9]\d{0,17})\/review$/);
+
+    if (
+      messageReportReviewMatch &&
+      BigInt(messageReportReviewMatch[1]) <= 9223372036854775807n &&
+      req.method === 'POST'
+    ) {
+      const admin = await requireAdmin(req, res);
+      if (!admin) return;
+
+      const reportId = messageReportReviewMatch[1];
+
+      const result = await pool.query(
+        `UPDATE message_reports
+         SET status = 'reviewed',
+             reviewed_by = $2,
+             reviewed_at = NOW()
+         WHERE id = $1
+           AND status = 'pending'
+         RETURNING id::text AS id, status, reviewed_at`,
+        [reportId, admin.id]
+      );
+
+      if (!result.rowCount) {
+        const existing = await pool.query(
+          'SELECT status FROM message_reports WHERE id = $1',
+          [reportId]
+        );
+
+        if (!existing.rowCount) {
+          return sendJson(res, 404, { error: 'Message report not found.' });
+        }
+
+        return sendJson(res, 409, { error: 'This report has already been reviewed.' });
+      }
+
+      return sendJson(res, 200, {
+        message: 'Report marked as reviewed.',
+        report: result.rows[0]
       });
     }
 

@@ -18,3 +18,6 @@ tmp/
 public/index.before-dashboard.html
 server/index.backup.js
 server/index.before-*.js
+
+# Local KC Earn development files and backups
+.kc-work/
