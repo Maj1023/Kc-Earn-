@@ -297,6 +297,34 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
       <p>Approve requests before transferring funds. After making a transfer, record its payment reference and mark the request as paid.</p>
     </div>
 
+    <div class="dashboard-card">
+      <h2>Reward Settings</h2>
+      <p>Configure the percentage of verified provider revenue allocated to users.</p>
+
+      <label for="rewardPercentInput">User reward percentage (0–100%)</label>
+      <input
+        id="rewardPercentInput"
+        type="number"
+        min="0"
+        max="100"
+        step="1"
+        value="0"
+        inputmode="numeric"
+      >
+
+      <p id="rewardSettingsStatus">
+        Loading reward settings...
+      </p>
+
+      <button type="button" id="saveRewardSettingsButton"
+              onclick="saveAdminRewardSettings()">
+        Save Reward Percentage
+      </button>
+
+      <p><strong>Important:</strong> Rewards are currently disabled.
+      Saving this percentage does not credit any wallet.</p>
+    </div>
+
     <div id="adminWithdrawalList" class="dashboard-card">
       Loading withdrawal requests...
     </div>
@@ -620,9 +648,98 @@ async function loadWithdrawals() {
 }
 
 
+async function loadAdminRewardSettings() {
+  const input = document.getElementById('rewardPercentInput');
+  const status = document.getElementById('rewardSettingsStatus');
+  const button = document.getElementById('saveRewardSettingsButton');
+  let loaded = false;
+
+  status.textContent = 'Loading reward settings...';
+  button.disabled = true;
+
+  try {
+    const response = await fetch('/api/admin/reward-settings', {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.settings) {
+      throw new Error(result.error || 'Could not load reward settings.');
+    }
+
+    const percentage = Number(result.settings.userRewardPercent);
+
+    if (!Number.isInteger(percentage) || percentage < 0 || percentage > 100) {
+      throw new Error('The saved reward percentage is invalid.');
+    }
+
+    input.value = String(percentage);
+
+    if (result.settings.rewardsEnabled !== false) {
+      status.textContent =
+        'SAFETY ALERT: Unexpected reward status. Saving is disabled.';
+      throw new Error('Rewards must remain disabled until provider approval and verification.');
+    }
+
+    status.textContent =
+      'Status: Disabled — provider approval and verification required.';
+    loaded = true;
+  } catch (error) {
+    status.textContent = error.message || 'Unable to load reward settings.';
+    console.error('Reward settings load error:', error);
+  } finally {
+    button.disabled = !loaded;
+  }
+}
+
+async function saveAdminRewardSettings() {
+  const input = document.getElementById('rewardPercentInput');
+  const status = document.getElementById('rewardSettingsStatus');
+  const button = document.getElementById('saveRewardSettingsButton');
+
+  const percentage = Number(input.value);
+
+  if (input.value.trim() === '' ||
+      !Number.isInteger(percentage) ||
+      percentage < 0 || percentage > 100) {
+    showNotice('adminWithdrawals',
+      'Enter a whole-number percentage from 0 to 100.');
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = 'Saving...';
+
+  try {
+    const result = await sendAccountRequest('/api/admin/reward-settings', {
+      userRewardPercent: percentage,
+      rewardsEnabled: false
+    });
+
+    status.textContent =
+      'Configured user percentage: ' + percentage +
+      '%. Rewards remain disabled.';
+
+    showNotice('adminWithdrawals',
+      result.message || 'Reward percentage saved.', true);
+  } catch (error) {
+    showNotice('adminWithdrawals',
+      error.message || 'Unable to save reward settings.');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Save Reward Percentage';
+  }
+}
+
 async function openAdminWithdrawals() {
   showPage('adminWithdrawals');
-  await loadAdminWithdrawals();
+  await Promise.all([
+    loadAdminRewardSettings(),
+    loadAdminWithdrawals()
+  ]);
 }
 
 async function loadAdminWithdrawals() {

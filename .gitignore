@@ -11,3 +11,10 @@ yarn-debug.log*
 *.p8
 *.p12
 *.mobileprovision
+
+# Local testing files and backups
+.check-temp/
+tmp/
+public/index.before-dashboard.html
+server/index.backup.js
+server/index.before-*.js

@@ -188,6 +188,36 @@ async function initializeDatabase() {
     ON withdrawal_requests(user_id, created_at DESC)
   `);
 
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reward_settings (
+      id SMALLINT PRIMARY KEY CHECK (id = 1),
+      user_reward_percent SMALLINT NOT NULL DEFAULT 0
+        CHECK (user_reward_percent BETWEEN 0 AND 100),
+      rewards_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    INSERT INTO reward_settings (id, user_reward_percent, rewards_enabled)
+    VALUES (1, 0, FALSE)
+    ON CONFLICT (id) DO NOTHING
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reward_settings_audit (
+      id BIGSERIAL PRIMARY KEY,
+      old_reward_percent SMALLINT NOT NULL,
+      new_reward_percent SMALLINT NOT NULL,
+      old_rewards_enabled BOOLEAN NOT NULL,
+      new_rewards_enabled BOOLEAN NOT NULL,
+      changed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
   console.log('KC Earn database and account tables ready.');
 }
 
@@ -541,6 +571,134 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+
+
+    if (req.method === 'GET' && pathname === '/api/admin/reward-settings') {
+      const admin = await requireAdmin(req, res);
+
+      if (!admin) {
+        return;
+      }
+
+      const result = await pool.query(
+        `SELECT user_reward_percent, rewards_enabled, updated_at
+         FROM reward_settings
+         WHERE id = 1`
+      );
+
+      if (result.rowCount !== 1) {
+        return sendJson(res, 500, {
+          error: 'Reward settings are not initialized.'
+        });
+      }
+
+      return sendJson(res, 200, {
+        settings: {
+          userRewardPercent: result.rows[0].user_reward_percent,
+          rewardsEnabled: result.rows[0].rewards_enabled,
+          updatedAt: result.rows[0].updated_at
+        }
+      });
+    }
+
+    if (req.method === 'POST' && pathname === '/api/admin/reward-settings') {
+      const admin = await requireAdmin(req, res);
+
+      if (!admin) {
+        return;
+      }
+
+      const body = await readJson(req);
+
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return sendJson(res, 400, {
+          error: 'Request body must be a JSON object.'
+        });
+      }
+
+      const percentage = body.userRewardPercent;
+
+      if (typeof percentage !== 'number' ||
+          !Number.isInteger(percentage) ||
+          percentage < 0 || percentage > 100) {
+        return sendJson(res, 400, {
+          error: 'Reward percentage must be a whole number from 0 to 100.'
+        });
+      }
+
+      if (body.rewardsEnabled !== false) {
+        return sendJson(res, 403, {
+          error: 'Rewards cannot be enabled until a provider is approved and verified.'
+        });
+      }
+
+      const client = await pool.connect();
+      let committed = false;
+
+      try {
+        await client.query('BEGIN');
+
+        const current = await client.query(
+          `SELECT user_reward_percent, rewards_enabled
+           FROM reward_settings
+           WHERE id = 1
+           FOR UPDATE`
+        );
+
+        if (current.rowCount !== 1) {
+          throw new Error('Reward settings are not initialized.');
+        }
+
+        const oldSettings = current.rows[0];
+        const changed = oldSettings.user_reward_percent !== percentage ||
+          oldSettings.rewards_enabled !== false;
+
+        if (changed) {
+          await client.query(
+            `UPDATE reward_settings
+             SET user_reward_percent = $1,
+                 rewards_enabled = FALSE,
+                 updated_by = $2,
+                 updated_at = NOW()
+             WHERE id = 1`,
+            [percentage, admin.id]
+          );
+
+          await client.query(
+            `INSERT INTO reward_settings_audit
+             (old_reward_percent, new_reward_percent,
+              old_rewards_enabled, new_rewards_enabled, changed_by)
+             VALUES ($1, $2, $3, FALSE, $4)`,
+            [
+              oldSettings.user_reward_percent,
+              percentage,
+              oldSettings.rewards_enabled,
+              admin.id
+            ]
+          );
+        }
+
+        await client.query('COMMIT');
+        committed = true;
+
+        return sendJson(res, 200, {
+          message: changed
+            ? 'Reward percentage updated. Rewards remain disabled.'
+            : 'Reward settings are unchanged.',
+          settings: {
+            userRewardPercent: percentage,
+            rewardsEnabled: false
+          }
+        });
+      } catch (error) {
+        if (!committed) {
+          await client.query('ROLLBACK').catch(() => {});
+        }
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
 
     if (req.method === 'GET' && pathname === '/api/admin/withdrawals') {
       const admin = await requireAdmin(req, res);
