@@ -2,6 +2,13 @@
   "name": "kc-earn",
   "version": "1.0.0",
   "main": "index.ts",
+  "scripts": {
+    "start": "node server/index.js",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "test": "node --test"
+  },
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "expo": "~58.0.24",
@@ -13,12 +20,6 @@
   "devDependencies": {
     "@types/react": "~19.3.0",
     "typescript": "~6.0.3"
-  },
-  "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
   },
   "private": true
 }
