@@ -167,10 +167,12 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
       <strong>Paid Surveys</strong>
       <small>Coming soon</small>
     </div>
-    <div class="dashboard-card">
+    <div class="dashboard-card"
+         onclick="openOfferzyWall()" role="button" tabindex="0"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openOfferzyWall();}">
       <span class="emoji">🎯</span>
       <strong>Online Offers</strong>
-      <small>Coming soon</small>
+      <small>Browse available offers and earn rewards</small>
     </div>
     <div class="dashboard-card">
       <span class="emoji">👥</span>
@@ -377,17 +379,36 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
         inputmode="numeric"
       >
 
+      <label for="usdToNgnRateInput">USD to NGN exchange rate</label>
+      <input
+        id="usdToNgnRateInput"
+        type="text"
+        inputmode="decimal"
+        value="0.0000"
+        placeholder="Example: 1500.0000"
+        maxlength="12"
+      >
+
+      <label for="rewardsEnabledInput">
+        <input
+          id="rewardsEnabledInput"
+          type="checkbox"
+        >
+        Enable customer rewards
+      </label>
+
       <p id="rewardSettingsStatus">
         Loading reward settings...
       </p>
 
       <button type="button" id="saveRewardSettingsButton"
               onclick="saveAdminRewardSettings()">
-        Save Reward Percentage
+        Save Reward Settings
       </button>
 
-      <p><strong>Important:</strong> Rewards are currently disabled.
-      Saving this percentage does not credit any wallet.</p>
+      <p><strong>Important:</strong> When rewards are enabled, verified
+      Offerzy conversions can credit customer wallets. Keep rewards disabled
+      until the integration and payout arrangements are ready.</p>
     </div>
 
     <div id="adminWithdrawalList" class="dashboard-card">
@@ -523,6 +544,23 @@ function openDashboard(user) {
   document.getElementById('adminCard').hidden = user.isAdmin !== true;
   showPage('dashboard');
   loadWallet();
+}
+
+function openOfferzyWall() {
+  if (!messagingCurrentUserId ||
+      !/^[1-9]\d*$/.test(messagingCurrentUserId)) {
+    showNotice('dashboard', 'Please sign in again before opening offers.');
+    return;
+  }
+
+  const url = new URL('https://offerwall.offerzy.io/');
+  url.searchParams.set(
+    'placement_id',
+    'ofzy_live_654a658bcc46b2e48ec333d5727cb9b0'
+  );
+  url.searchParams.set('user_id', messagingCurrentUserId);
+
+  window.open(url.toString(), '_blank', 'noopener,noreferrer');
 }
 
 async function loadWallet() {
@@ -740,6 +778,7 @@ async function loadWithdrawals() {
 
 async function loadAdminRewardSettings() {
   const input = document.getElementById('rewardPercentInput');
+  const rateInput = document.getElementById('usdToNgnRateInput');
   const status = document.getElementById('rewardSettingsStatus');
   const button = document.getElementById('saveRewardSettingsButton');
   let loaded = false;
@@ -761,6 +800,11 @@ async function loadAdminRewardSettings() {
     }
 
     const percentage = Number(result.settings.userRewardPercent);
+    const enabledInput = document.getElementById('rewardsEnabledInput');
+
+    if (typeof result.settings.rewardsEnabled !== 'boolean') {
+      throw new Error('The saved reward status is invalid.');
+    }
 
     if (!Number.isInteger(percentage) || percentage < 0 || percentage > 100) {
       throw new Error('The saved reward percentage is invalid.');
@@ -768,14 +812,22 @@ async function loadAdminRewardSettings() {
 
     input.value = String(percentage);
 
-    if (result.settings.rewardsEnabled !== false) {
-      status.textContent =
-        'SAFETY ALERT: Unexpected reward status. Saving is disabled.';
-      throw new Error('Rewards must remain disabled until provider approval and verification.');
+    const exchangeRate = result.settings.usdToNgnRate;
+
+    if (typeof exchangeRate !== 'string' ||
+        !/^(?:0|[1-9]\d{0,6})(?:\.\d{1,4})?$/.test(exchangeRate) ||
+        Number(exchangeRate) > 1000000) {
+      throw new Error('The saved USD-to-NGN exchange rate is invalid.');
     }
 
-    status.textContent =
-      'Status: Disabled — provider approval and verification required.';
+    rateInput.value = exchangeRate;
+
+    enabledInput.checked = result.settings.rewardsEnabled;
+
+    status.textContent = result.settings.rewardsEnabled
+      ? 'Status: ENABLED — verified Offerzy conversions can credit customer wallets.'
+      : 'Status: Disabled — customer wallets will not receive Offerzy rewards.';
+
     loaded = true;
   } catch (error) {
     status.textContent = error.message || 'Unable to load reward settings.';
@@ -787,10 +839,14 @@ async function loadAdminRewardSettings() {
 
 async function saveAdminRewardSettings() {
   const input = document.getElementById('rewardPercentInput');
+  const rateInput = document.getElementById('usdToNgnRateInput');
+  const enabledInput = document.getElementById('rewardsEnabledInput');
   const status = document.getElementById('rewardSettingsStatus');
   const button = document.getElementById('saveRewardSettingsButton');
 
   const percentage = Number(input.value);
+  const exchangeRate = rateInput.value.trim();
+  const rewardsEnabled = enabledInput.checked;
 
   if (input.value.trim() === '' ||
       !Number.isInteger(percentage) ||
@@ -800,18 +856,32 @@ async function saveAdminRewardSettings() {
     return;
   }
 
+  if (!/^(?:0|[1-9]\d{0,6})(?:\.\d{1,4})?$/.test(exchangeRate) ||
+      Number(exchangeRate) > 1000000) {
+    showNotice('adminWithdrawals',
+      'Enter a valid exchange rate with up to four decimal places.');
+    return;
+  }
+
+  if (rewardsEnabled &&
+      !confirm('Enable customer rewards? Verified Offerzy conversions will begin crediting wallets, subject to the configured reward percentage and exchange rate.')) {
+    return;
+  }
+
   button.disabled = true;
   button.textContent = 'Saving...';
 
   try {
     const result = await sendAccountRequest('/api/admin/reward-settings', {
       userRewardPercent: percentage,
-      rewardsEnabled: false
+      usdToNgnRate: exchangeRate,
+      rewardsEnabled
     });
 
     status.textContent =
       'Configured user percentage: ' + percentage +
-      '%. Rewards remain disabled.';
+      '%. USD-to-NGN rate: ' + exchangeRate +
+      '. Rewards are ' + (rewardsEnabled ? 'ENABLED.' : 'disabled.');
 
     showNotice('adminWithdrawals',
       result.message || 'Reward percentage saved.', true);
@@ -820,7 +890,7 @@ async function saveAdminRewardSettings() {
       error.message || 'Unable to save reward settings.');
   } finally {
     button.disabled = false;
-    button.textContent = 'Save Reward Percentage';
+    button.textContent = 'Save Reward Settings';
   }
 }
 
