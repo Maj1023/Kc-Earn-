@@ -178,6 +178,24 @@ async function handleOfferzyPostback({ params, pool, privateKey }) {
     return { status: 403, body: 'Invalid Offerzy signature.' };
   }
 
+  // Offerzy's documented simulated test must never credit a real wallet.
+  if (
+    data.status === 1 &&
+    data.transaction_id.startsWith('ofzy_test_') &&
+    data.offer_id === 'ofzy_offer_test'
+  ) {
+    const customer = await pool.query(
+      'SELECT id FROM users WHERE id = $1',
+      [data.user_id]
+    );
+
+    if (!customer.rowCount) {
+      return { status: 400, body: 'Unknown KC Earn test customer.' };
+    }
+
+    return { status: 200, body: 'Simulated test accepted; no wallet credit.' };
+  }
+
   let client;
 
   try {
