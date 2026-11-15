@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
+const { handleOfferzyPostback } = require('./offerzy');
 
 const PORT = process.env.PORT || 3000;
 const SESSION_DAYS = 7;
@@ -208,6 +209,15 @@ async function initializeDatabase() {
     ON CONFLICT (id) DO NOTHING
   `);
 
+  // Admin-controlled USD to NGN conversion rate for Offerzy rewards.
+  // Zero keeps reward calculations disabled until explicitly configured.
+  await pool.query(`
+    ALTER TABLE reward_settings
+    ADD COLUMN IF NOT EXISTS usd_to_ngn_rate NUMERIC(20,4)
+    NOT NULL DEFAULT 0.0000
+    CHECK (usd_to_ngn_rate >= 0)
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS reward_settings_audit (
       id BIGSERIAL PRIMARY KEY,
@@ -218,6 +228,19 @@ async function initializeDatabase() {
       changed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
       changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  // Preserve exchange-rate history, including existing audit records.
+  await pool.query(`
+    ALTER TABLE reward_settings_audit
+    ADD COLUMN IF NOT EXISTS old_usd_to_ngn_rate NUMERIC(20,4)
+    NOT NULL DEFAULT 0.0000
+  `);
+
+  await pool.query(`
+    ALTER TABLE reward_settings_audit
+    ADD COLUMN IF NOT EXISTS new_usd_to_ngn_rate NUMERIC(20,4)
+    NOT NULL DEFAULT 0.0000
   `);
 
 
@@ -358,6 +381,88 @@ async function initializeDatabase() {
       END IF;
     END;
     $migration$;
+  `);
+
+
+  // Verified Offerzy callback records and wallet accounting.
+  // Wallet credits, reversals, and debt recovery are recorded transactionally.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS offerzy_postbacks (
+      id BIGSERIAL PRIMARY KEY,
+      transaction_id VARCHAR(150) NOT NULL,
+      status SMALLINT NOT NULL CHECK (status IN (1, 2)),
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      reward_coins NUMERIC(30,10) NOT NULL,
+      payout_usd NUMERIC(20,8) NOT NULL,
+      offer_id VARCHAR(150) NOT NULL,
+      offer_name VARCHAR(255),
+      ip VARCHAR(64),
+      country VARCHAR(32),
+      sub1 VARCHAR(255),
+      sub2 VARCHAR(255),
+      sub3 VARCHAR(255),
+      sub4 VARCHAR(255),
+      sub5 VARCHAR(255),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT offerzy_postbacks_transaction_status_unique
+        UNIQUE (transaction_id, status)
+    )
+  `);
+
+  // Preserve the financial calculation and reversal accounting for each callback.
+  await pool.query(`
+    ALTER TABLE offerzy_postbacks
+      ADD COLUMN IF NOT EXISTS usd_to_ngn_rate NUMERIC(20,4),
+      ADD COLUMN IF NOT EXISTS user_reward_percent SMALLINT
+        CHECK (user_reward_percent BETWEEN 0 AND 100),
+      ADD COLUMN IF NOT EXISTS calculated_reward_kobo BIGINT,
+      ADD COLUMN IF NOT EXISTS wallet_credit_kobo BIGINT NOT NULL DEFAULT 0
+        CHECK (wallet_credit_kobo >= 0),
+      ADD COLUMN IF NOT EXISTS recovery_applied_kobo BIGINT NOT NULL DEFAULT 0
+        CHECK (recovery_applied_kobo >= 0),
+      ADD COLUMN IF NOT EXISTS wallet_debit_kobo BIGINT NOT NULL DEFAULT 0
+        CHECK (wallet_debit_kobo >= 0),
+      ADD COLUMN IF NOT EXISTS recovery_added_kobo BIGINT NOT NULL DEFAULT 0
+        CHECK (recovery_added_kobo >= 0),
+      ADD COLUMN IF NOT EXISTS recovery_restored_kobo BIGINT NOT NULL DEFAULT 0
+        CHECK (recovery_restored_kobo >= 0)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS offerzy_postbacks_user_created_idx
+    ON offerzy_postbacks(user_id, created_at DESC)
+  `);
+
+  // Track Offerzy reversal recovery separately from available wallet funds.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS offerzy_recovery_accounts (
+      user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
+      outstanding_kobo BIGINT NOT NULL DEFAULT 0
+        CHECK (outstanding_kobo >= 0),
+      total_recovered_kobo BIGINT NOT NULL DEFAULT 0
+        CHECK (total_recovered_kobo >= 0),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  // Auditable history of Offerzy recovery debt movements.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS offerzy_recovery_ledger (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      postback_id BIGINT NOT NULL REFERENCES offerzy_postbacks(id)
+        ON DELETE RESTRICT,
+      reference VARCHAR(100) NOT NULL UNIQUE,
+      event_type VARCHAR(20) NOT NULL
+        CHECK (event_type IN ('debt_added', 'debt_repaid', 'debt_restored')),
+      amount_kobo BIGINT NOT NULL CHECK (amount_kobo > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS offerzy_recovery_ledger_user_created_idx
+    ON offerzy_recovery_ledger(user_id, created_at DESC)
   `);
 
   console.log('KC Earn database and account tables ready.');
@@ -512,6 +617,22 @@ const server = http.createServer(async (req, res) => {
           error: 'Request origin not allowed.'
         });
       }
+    }
+
+    // Signed server-to-server Offerzy conversion and reversal callbacks.
+    if (req.method === 'GET' &&
+        pathname === '/api/offerzy/postback') {
+      const callback = await handleOfferzyPostback({
+        params: new URL(req.url, 'http://localhost').searchParams,
+        pool,
+        privateKey: process.env.OFFERZY_PRIVATE_KEY
+      });
+
+      res.writeHead(callback.status, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store'
+      });
+      return res.end(callback.body);
     }
 
     if (req.method === 'GET' &&
@@ -723,7 +844,8 @@ const server = http.createServer(async (req, res) => {
       }
 
       const result = await pool.query(
-        `SELECT user_reward_percent, rewards_enabled, updated_at
+        `SELECT user_reward_percent, rewards_enabled,
+                usd_to_ngn_rate::text AS usd_to_ngn_rate, updated_at
          FROM reward_settings
          WHERE id = 1`
       );
@@ -737,6 +859,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         settings: {
           userRewardPercent: result.rows[0].user_reward_percent,
+          usdToNgnRate: result.rows[0].usd_to_ngn_rate,
           rewardsEnabled: result.rows[0].rewards_enabled,
           updatedAt: result.rows[0].updated_at
         }
@@ -768,9 +891,28 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      if (body.rewardsEnabled !== false) {
-        return sendJson(res, 403, {
-          error: 'Rewards cannot be enabled until a provider is approved and verified.'
+      const exchangeRate = body.usdToNgnRate;
+
+      if (typeof exchangeRate !== 'string' ||
+          !/^(?:0|[1-9]\d{0,6})(?:\.\d{1,4})?$/.test(exchangeRate) ||
+          Number(exchangeRate) > 1000000) {
+        return sendJson(res, 400, {
+          error: 'Enter a valid USD-to-NGN rate with up to four decimal places.'
+        });
+      }
+
+      if (typeof body.rewardsEnabled !== 'boolean') {
+        return sendJson(res, 400, {
+          error: 'Rewards enabled must be true or false.'
+        });
+      }
+
+      const rewardsEnabled = body.rewardsEnabled;
+
+      if (rewardsEnabled &&
+          (percentage === 0 || Number(exchangeRate) <= 0)) {
+        return sendJson(res, 400, {
+          error: 'Set a positive reward percentage and exchange rate before enabling rewards.'
         });
       }
 
@@ -781,7 +923,8 @@ const server = http.createServer(async (req, res) => {
         await client.query('BEGIN');
 
         const current = await client.query(
-          `SELECT user_reward_percent, rewards_enabled
+          `SELECT user_reward_percent, rewards_enabled,
+                  usd_to_ngn_rate::text AS usd_to_ngn_rate
            FROM reward_settings
            WHERE id = 1
            FOR UPDATE`
@@ -792,29 +935,36 @@ const server = http.createServer(async (req, res) => {
         }
 
         const oldSettings = current.rows[0];
-        const changed = oldSettings.user_reward_percent !== percentage ||
-          oldSettings.rewards_enabled !== false;
+        const changed =
+          Number(oldSettings.user_reward_percent) !== percentage ||
+          Number(oldSettings.usd_to_ngn_rate) !== Number(exchangeRate) ||
+          oldSettings.rewards_enabled !== rewardsEnabled;
 
         if (changed) {
           await client.query(
             `UPDATE reward_settings
              SET user_reward_percent = $1,
-                 rewards_enabled = FALSE,
-                 updated_by = $2,
+                 usd_to_ngn_rate = $2,
+                 rewards_enabled = $3,
+                 updated_by = $4,
                  updated_at = NOW()
              WHERE id = 1`,
-            [percentage, admin.id]
+            [percentage, exchangeRate, rewardsEnabled, admin.id]
           );
 
           await client.query(
             `INSERT INTO reward_settings_audit
              (old_reward_percent, new_reward_percent,
-              old_rewards_enabled, new_rewards_enabled, changed_by)
-             VALUES ($1, $2, $3, FALSE, $4)`,
+              old_rewards_enabled, new_rewards_enabled,
+              old_usd_to_ngn_rate, new_usd_to_ngn_rate, changed_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [
               oldSettings.user_reward_percent,
               percentage,
               oldSettings.rewards_enabled,
+              rewardsEnabled,
+              oldSettings.usd_to_ngn_rate,
+              exchangeRate,
               admin.id
             ]
           );
@@ -825,11 +975,13 @@ const server = http.createServer(async (req, res) => {
 
         return sendJson(res, 200, {
           message: changed
-            ? 'Reward percentage updated. Rewards remain disabled.'
+            ? 'Reward settings updated. Rewards are ' +
+              (rewardsEnabled ? 'enabled.' : 'disabled.')
             : 'Reward settings are unchanged.',
           settings: {
             userRewardPercent: percentage,
-            rewardsEnabled: false
+            usdToNgnRate: exchangeRate,
+            rewardsEnabled
           }
         });
       } catch (error) {
