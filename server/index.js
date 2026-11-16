@@ -138,7 +138,7 @@ async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS withdrawal_requests (
       id BIGSERIAL PRIMARY KEY,
       user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      amount_kobo BIGINT NOT NULL CHECK (amount_kobo >= 150000),
+      amount_kobo BIGINT NOT NULL CHECK (amount_kobo >= 50000),
       bank_name VARCHAR(100) NOT NULL,
       account_number CHAR(10) NOT NULL,
       account_name VARCHAR(100) NOT NULL,
@@ -149,6 +149,31 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+
+  // Update the existing withdrawal minimum to ₦500.
+  await pool.query(`
+    DO $ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'withdrawal_requests_amount_kobo_check'
+          AND conrelid = 'withdrawal_requests'::regclass
+          AND pg_get_constraintdef(oid) NOT LIKE '%50000%'
+      ) THEN
+        ALTER TABLE withdrawal_requests
+          DROP CONSTRAINT withdrawal_requests_amount_kobo_check;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'withdrawal_requests_amount_kobo_check'
+          AND conrelid = 'withdrawal_requests'::regclass
+      ) THEN
+        ALTER TABLE withdrawal_requests
+          ADD CONSTRAINT withdrawal_requests_amount_kobo_check
+          CHECK (amount_kobo >= 50000);
+      END IF;
+    END $;
   `);
 
   await pool.query(`
@@ -1240,9 +1265,9 @@ const server = http.createServer(async (req, res) => {
       const amountKobo = Number(amountParts[0]) * 100 +
         Number(((amountParts[1] || '') + '00').slice(0, 2));
 
-      if (!Number.isSafeInteger(amountKobo) || amountKobo < 150000) {
+      if (!Number.isSafeInteger(amountKobo) || amountKobo < 50000) {
         return sendJson(res, 400, {
-          error: 'Minimum withdrawal is ₦1,500.'
+          error: 'Minimum withdrawal is ₦500.'
         });
       }
 
