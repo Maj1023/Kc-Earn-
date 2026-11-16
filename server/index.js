@@ -153,27 +153,12 @@ async function initializeDatabase() {
 
   // Update the existing withdrawal minimum to ₦500.
   await pool.query(`
-    DO $ BEGIN
-      IF EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'withdrawal_requests_amount_kobo_check'
-          AND conrelid = 'withdrawal_requests'::regclass
-          AND pg_get_constraintdef(oid) NOT LIKE '%50000%'
-      ) THEN
-        ALTER TABLE withdrawal_requests
-          DROP CONSTRAINT withdrawal_requests_amount_kobo_check;
-      END IF;
+    ALTER TABLE withdrawal_requests
+      DROP CONSTRAINT IF EXISTS withdrawal_requests_amount_kobo_check;
 
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'withdrawal_requests_amount_kobo_check'
-          AND conrelid = 'withdrawal_requests'::regclass
-      ) THEN
-        ALTER TABLE withdrawal_requests
-          ADD CONSTRAINT withdrawal_requests_amount_kobo_check
-          CHECK (amount_kobo >= 50000);
-      END IF;
-    END $;
+    ALTER TABLE withdrawal_requests
+      ADD CONSTRAINT withdrawal_requests_amount_kobo_check
+      CHECK (amount_kobo >= 50000);
   `);
 
   await pool.query(`
