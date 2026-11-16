@@ -138,7 +138,7 @@ async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS withdrawal_requests (
       id BIGSERIAL PRIMARY KEY,
       user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      amount_kobo BIGINT NOT NULL CHECK (amount_kobo >= 50000),
+      amount_kobo BIGINT NOT NULL CHECK (amount_kobo >= 20000),
       bank_name VARCHAR(100) NOT NULL,
       account_number CHAR(10) NOT NULL,
       account_name VARCHAR(100) NOT NULL,
@@ -151,14 +151,14 @@ async function initializeDatabase() {
     )
   `);
 
-  // Update the existing withdrawal minimum to ₦500.
+  // Update the existing withdrawal minimum to ₦200.
   await pool.query(`
     ALTER TABLE withdrawal_requests
       DROP CONSTRAINT IF EXISTS withdrawal_requests_amount_kobo_check;
 
     ALTER TABLE withdrawal_requests
       ADD CONSTRAINT withdrawal_requests_amount_kobo_check
-      CHECK (amount_kobo >= 50000);
+      CHECK (amount_kobo >= 20000);
   `);
 
   await pool.query(`
@@ -1250,9 +1250,9 @@ const server = http.createServer(async (req, res) => {
       const amountKobo = Number(amountParts[0]) * 100 +
         Number(((amountParts[1] || '') + '00').slice(0, 2));
 
-      if (!Number.isSafeInteger(amountKobo) || amountKobo < 50000) {
+      if (!Number.isSafeInteger(amountKobo) || amountKobo < 20000) {
         return sendJson(res, 400, {
-          error: 'Minimum withdrawal is ₦500.'
+          error: 'Minimum withdrawal is ₦200.'
         });
       }
 
