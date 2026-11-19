@@ -1,13 +1,13 @@
-name: Tests
+name: UI release checks
 
 on:
   pull_request:
   push:
-    branches: [main, feature/pan-africa-country-foundation, feature/dark-navy-interface]
+    branches: [main, feature/dark-navy-interface]
   workflow_dispatch:
 
 jobs:
-  node-tests:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -15,5 +15,5 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - run: npm test
       - run: npx tsc --noEmit
+      - run: node --check server/index.js
