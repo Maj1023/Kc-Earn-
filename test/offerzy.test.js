@@ -462,3 +462,54 @@ test('uses future verified earnings to repay debt before wallet credit', async (
 
   assert.ok(fake.queries.some(q => q.sql === 'COMMIT'));
 });
+
+
+test('verifies Offerzy signature_v2 against the exact raw query string', () => {
+  const base = makeParams().toString();
+  const signatureV2 = crypto.createHmac('sha256', PRIVATE_KEY)
+    .update(base, 'utf8')
+    .digest('hex');
+  const rawQuery = base + '&signature_v2=' + signatureV2;
+  const parsed = parseOfferzyCallback(new URLSearchParams(rawQuery));
+
+  assert.ok(parsed.data);
+  assert.equal(
+    verifyOfferzySignature(parsed.data, PRIVATE_KEY, rawQuery),
+    true
+  );
+  assert.equal(
+    verifyOfferzySignature(parsed.data, PRIVATE_KEY, rawQuery.replace('payout=1.50', 'payout=1.51')),
+    false
+  );
+});
+
+test('rejects signature_v2 unless it is the final unique raw query parameter', () => {
+  const base = makeParams().toString();
+  const signatureV2 = crypto.createHmac('sha256', PRIVATE_KEY)
+    .update(base, 'utf8')
+    .digest('hex');
+  const rawQuery = base + '&signature_v2=' + signatureV2 + '&extra=1';
+  const parsed = parseOfferzyCallback(new URLSearchParams(rawQuery));
+
+  assert.ok(parsed.data);
+  assert.equal(
+    verifyOfferzySignature(parsed.data, PRIVATE_KEY, rawQuery),
+    false
+  );
+});
+
+test('accepts server callback rawQuery contract without fabricating params', async () => {
+  const base = makeParams().toString();
+  const signatureV2 = crypto.createHmac('sha256', PRIVATE_KEY)
+    .update(base, 'utf8')
+    .digest('hex');
+  const fake = makeFakePool();
+  const result = await handleOfferzyPostback({
+    rawQuery: base + '&signature_v2=' + signatureV2,
+    pool: fake.pool,
+    privateKey: PRIVATE_KEY
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body, 'ok');
+});
