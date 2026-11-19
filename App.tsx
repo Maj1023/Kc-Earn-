@@ -56,7 +56,10 @@ async function apiRequest<T>(
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(typeof data.error === 'string' ? data.error : 'The request could not be completed.');
+    throw new ApiError(
+      typeof data.error === 'string' ? data.error : 'The request could not be completed.',
+      response.status
+    );
   }
   return data as T;
 }
@@ -102,8 +105,12 @@ export default function App() {
           setTransactions(transactionData.transactions);
           setScreen('dashboard');
         }
-      } catch {
-        await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
+        } else if (active) {
+          setNotice(error instanceof Error ? error.message : 'Could not restore your session.');
+        }
       }
     })();
     return () => { active = false; };
@@ -148,6 +155,13 @@ export default function App() {
     try {
       await loadAccount(token);
     } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
+        setUser(null);
+        setWallet(null);
+        setTransactions([]);
+        setScreen('login');
+      }
       setNotice(error instanceof Error ? error.message : 'Could not refresh account.');
     } finally {
       setRefreshing(false);
