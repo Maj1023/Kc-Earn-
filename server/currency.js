@@ -47,15 +47,15 @@ function formatMinorAmount(amountMinor, currency) {
 // The caller must keep the FX rate and currency metadata with the ledger entry.
 function calculateOfferzyRewardMinor(rewardCoins, usdToLocalRate, rewardPercent, currency) {
   const digits = getCurrencyMinorUnit(currency);
-  const coinPattern = /^(?:0|[1-9]\\d{0,17})(?:\\.\\d{1,8})?$/;
-  const ratePattern = /^(?:0|[1-9]\\d{0,8})(?:\\.\\d{1,8})?$/;
+  const coinPattern = /^(?:0|[1-9]\d{0,17})(?:\.\d{1,8})?$/;
+  const ratePattern = /^(?:0|[1-9]\d{0,8})(?:\.\d{1,8})?$/;
 
   if (typeof rewardCoins !== 'string' || !coinPattern.test(rewardCoins) ||
-      /^0(?:\\.0+)?$/.test(rewardCoins)) {
+      /^0(?:\.0+)?$/.test(rewardCoins)) {
     throw new Error('Invalid positive Offerzy Coin reward.');
   }
   if (typeof usdToLocalRate !== 'string' || !ratePattern.test(usdToLocalRate) ||
-      /^0(?:\\.0+)?$/.test(usdToLocalRate)) {
+      /^0(?:\.0+)?$/.test(usdToLocalRate)) {
     throw new Error('A positive trusted USD-to-local-currency rate is required.');
   }
   if (typeof rewardPercent !== 'number' || !Number.isInteger(rewardPercent) ||
