@@ -570,6 +570,7 @@ async function getLoggedInUser(req) {
 
   const result = await pool.query(
     `SELECT users.id, users.full_name, users.email, users.created_at, users.role,
+            users.country_code, users.currency,
             sessions.expires_at AS session_expires_at
      FROM sessions
      JOIN users ON users.id = sessions.user_id
@@ -815,6 +816,12 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      if ((user.country_code || 'NG') !== 'NG') {
+        return sendJson(res, 409, {
+          error: 'Your country is registered. Local-currency wallets and verified payout services are not yet available there.'
+        });
+      }
+
       await pool.query(
         'INSERT INTO wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
         [user.id]
@@ -845,6 +852,12 @@ const server = http.createServer(async (req, res) => {
       if (!user) {
         return sendJson(res, 401, {
           error: 'Please sign in.'
+        });
+      }
+
+      if ((user.country_code || 'NG') !== 'NG') {
+        return sendJson(res, 409, {
+          error: 'Local-currency transaction history is not yet available for your country.'
         });
       }
 
@@ -1427,6 +1440,12 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 401, { error: 'Please sign in.' });
       }
 
+      if ((user.country_code || 'NG') !== 'NG') {
+        return sendJson(res, 409, {
+          error: 'Withdrawals are not yet enabled for your country because a verified local payout route is not available.'
+        });
+      }
+
       const body = await readJson(req);
       const amountText = String(body.amountNaira ?? '').trim();
       const bankName = typeof body.bankName === 'string'
@@ -1600,6 +1619,12 @@ const server = http.createServer(async (req, res) => {
 
       if (!user) {
         return sendJson(res, 401, { error: 'Please sign in.' });
+      }
+
+      if ((user.country_code || 'NG') !== 'NG') {
+        return sendJson(res, 409, {
+          error: 'Withdrawal services are not yet available for your country.'
+        });
       }
 
       const result = await pool.query(
