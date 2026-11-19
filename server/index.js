@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const { handleOfferzyPostback } = require('./offerzy');
+const { isMobileClient, isAllowedApiPost } = require('./mobile-auth');
 
 const PORT = process.env.PORT || 3000;
 const SESSION_DAYS = 7;
@@ -513,29 +514,6 @@ function readJson(req) {
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
-}
-
-function isMobileClient(req) {
-  return req.headers['x-kc-client'] === 'mobile' && !req.headers.origin;
-}
-
-function isAllowedApiPost(req, expectedOrigin, allowMobileLogin = false) {
-  const origin = req.headers.origin;
-
-  if (origin) {
-    try {
-      return Boolean(
-        expectedOrigin &&
-        new URL(origin).origin === new URL(expectedOrigin).origin
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  const authorization = req.headers.authorization || '';
-  const hasBearerToken = /^Bearer [a-f0-9]{64}$/.test(authorization);
-  return hasBearerToken || (allowMobileLogin && isMobileClient(req));
 }
 
 function getCookie(req, name) {
