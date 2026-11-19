@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const { insertRegisteredUser } = require('./account-registration');
+const { getAfricanCountry } = require('./african-countries');
 const { handleOfferzyPostback } = require('./offerzy');
 const {
   ADMIN_ROLE_LOCK_SQL,
@@ -44,6 +45,13 @@ async function initializeDatabase() {
       password_hash TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+
+  // Existing accounts remain Nigerian unless a customer explicitly selected another country.
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS country_code CHAR(2) NOT NULL DEFAULT 'NG',
+    ADD COLUMN IF NOT EXISTS currency CHAR(3) NOT NULL DEFAULT 'NGN'
   `);
 
   // Administrator roles are provisioned explicitly. ADMIN_EMAIL is not used
@@ -593,6 +601,8 @@ function publicUser(user) {
     id: user.id,
     fullName: user.full_name,
     email: user.email,
+    countryCode: user.country_code || 'NG',
+    currency: user.currency || 'NGN',
     isAdmin: user.role === 'admin',
     createdAt: user.created_at
   };
@@ -692,6 +702,13 @@ const server = http.createServer(async (req, res) => {
       const password = typeof body.password === 'string'
         ? body.password
         : '';
+      const country = getAfricanCountry(body.countryCode);
+
+      if (!country) {
+        return sendJson(res, 400, {
+          error: 'Select a valid African country.'
+        });
+      }
 
       if (fullName.length < 2 || fullName.length > 100) {
         return sendJson(res, 400, {
@@ -722,6 +739,8 @@ const server = http.createServer(async (req, res) => {
           fullName,
           email,
           passwordHash,
+          countryCode: country.code,
+          currency: country.currency,
           role: body.role
         });
       } catch (error) {
