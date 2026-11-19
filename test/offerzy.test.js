@@ -106,6 +106,13 @@ function makeFakePool(options = {}) {
         return options.original || { rowCount: 0, rows: [] };
       }
 
+      if (sql.includes('SELECT country_code FROM users')) {
+        return options.customerMarket || {
+          rowCount: 1,
+          rows: [{ country_code: 'NG' }]
+        };
+      }
+
       if (sql.includes('FROM reward_settings')) {
         return options.settings || {
           rowCount: 1,
@@ -215,6 +222,28 @@ test('credits a valid conversion to the customer wallet', async () => {
   assert.ok(fake.queries.some(q => q.sql.includes('UPDATE wallets')));
   assert.ok(fake.queries.some(q => q.sql.includes('INSERT INTO wallet_transactions')));
   assert.ok(fake.queries.some(q => q.sql === 'COMMIT'));
+});
+
+test('does not credit an NGN reward to a non-Nigerian account', async () => {
+  const fake = makeFakePool({
+    customerMarket: {
+      rowCount: 1,
+      rows: [{ country_code: 'KE' }]
+    }
+  });
+
+  const result = await handleOfferzyPostback({
+    params: makeParams(),
+    pool: fake.pool,
+    privateKey: PRIVATE_KEY
+  });
+
+  assert.equal(result.status, 503);
+  assert.match(result.body, /not yet enabled for this country/);
+  assert.ok(fake.queries.some(q => q.sql === 'ROLLBACK'));
+  assert.ok(!fake.queries.some(q =>
+    q.sql.includes('INSERT INTO offerzy_postbacks')
+  ));
 });
 
 test('acknowledges repeated conversion as duplicate', async () => {
