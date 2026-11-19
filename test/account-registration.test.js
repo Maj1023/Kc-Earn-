@@ -9,7 +9,7 @@ async function captureInsert(input) {
   let recordedQuery;
   const pool = {
     async query(sql, values) {
-      recordedQuery = { sql: sql.replace(/\\s+/g, ' ').trim(), values };
+      recordedQuery = { sql: sql.replace(/\s+/g, ' ').trim(), values };
       return { rowCount: 1, rows: [{ id: '12' }] };
     }
   };
@@ -27,8 +27,8 @@ test('registration derives the account currency from the selected country', asyn
     role: 'admin'
   });
 
-  assert.match(query.sql, /INSERT INTO users \\(full_name, email, password_hash, country_code, currency, role\\)/);
-  assert.match(query.sql, /VALUES \\($1, $2, $3, $4, $5, 'user'\\)/);
+  assert.match(query.sql, /INSERT INTO users \(full_name, email, password_hash, country_code, currency, role\)/);
+  assert.match(query.sql, /VALUES \(\$1, \$2, \$3, \$4, \$5, 'user'\)/);
   assert.deepEqual(query.values, ['Test User', 'user@example.test', 'test-hash', 'KE', 'KES']);
 });
 
