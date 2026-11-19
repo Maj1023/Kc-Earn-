@@ -643,7 +643,7 @@ const server = http.createServer(async (req, res) => {
       const queryIndex = req.url.indexOf('?');
       const rawQuery = queryIndex === -1 ? '' : req.url.slice(queryIndex + 1);
       const callback = await handleOfferzyPostback({
-        params: new URLSearchParams(rawQuery),
+        rawQuery,
         pool,
         privateKey: process.env.OFFERZY_PRIVATE_KEY
       });
