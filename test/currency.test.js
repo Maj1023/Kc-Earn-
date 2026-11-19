@@ -8,10 +8,12 @@ test('currency precision follows ISO minor units for African currencies', () => 
   for (const currency of ['BIF', 'DJF', 'GNF', 'KMF', 'RWF', 'UGX', 'XAF', 'XOF']) {
     assert.equal(getCurrencyMinorUnit(currency), 0, currency);
   }
-  for (const currency of ['NGN', 'KES', 'GHS', 'ZAR', 'EGP', 'MGA', 'ZWG', 'TND']) {
+  for (const currency of ['NGN', 'KES', 'GHS', 'ZAR', 'EGP', 'MGA', 'ZWG']) {
     assert.equal(getCurrencyMinorUnit(currency), 2, currency);
   }
-  assert.equal(getCurrencyMinorUnit('LYD'), 3);
+  for (const currency of ['LYD', 'TND']) {
+    assert.equal(getCurrencyMinorUnit(currency), 3, currency);
+  }
 });
 
 test('minor-unit formatting uses exact integer arithmetic at every precision', () => {
@@ -21,6 +23,7 @@ test('minor-unit formatting uses exact integer arithmetic at every precision', (
   assert.equal(formatMinorAmount('9007199254740993', 'KES'), '90071992547409.93');
   assert.equal(formatMinorAmount('12345', 'LYD'), '12.345');
   assert.equal(formatMinorAmount('-1', 'LYD'), '-0.001');
+  assert.equal(formatMinorAmount('12345', 'TND'), '12.345');
 });
 
 test('unsupported currency and malformed minor-unit inputs are rejected', () => {
@@ -39,6 +42,7 @@ test('the account country catalog covers all 54 African countries exactly once',
   assert.equal(getAfricanCountry('ng').currency, 'NGN');
   assert.equal(getAfricanCountry('CI').currency, 'XOF');
   assert.equal(getAfricanCountry('LY').currency, 'LYD');
+  assert.equal(getAfricanCountry('TN').currency, 'TND');
   assert.equal(getAfricanCountry('XX'), null);
 });
 
