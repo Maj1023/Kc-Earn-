@@ -28,7 +28,7 @@ test('registration derives the account currency from the selected country', asyn
   });
 
   assert.match(query.sql, /INSERT INTO users \\(full_name, email, password_hash, country_code, currency, role\\)/);
-  assert.match(query.sql, /VALUES \\(\\$1, \\$2, \\$3, \\$4, \\$5, 'user'\\)/);
+  assert.match(query.sql, /VALUES \\($1, $2, $3, $4, $5, 'user'\\)/);
   assert.deepEqual(query.values, ['Test User', 'user@example.test', 'test-hash', 'KE', 'KES']);
 });
 
