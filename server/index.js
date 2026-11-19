@@ -641,8 +641,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' &&
         pathname === '/api/offerzy/postback') {
       const queryIndex = req.url.indexOf('?');
+      const rawQuery = queryIndex === -1 ? '' : req.url.slice(queryIndex + 1);
       const callback = await handleOfferzyPostback({
-        rawQuery: queryIndex === -1 ? '' : req.url.slice(queryIndex + 1),
+        params: new URLSearchParams(rawQuery),
         pool,
         privateKey: process.env.OFFERZY_PRIVATE_KEY
       });
