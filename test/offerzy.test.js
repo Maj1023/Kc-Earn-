@@ -309,9 +309,9 @@ test('rejects a reversal when its original conversion is missing', async () => {
 });
 
 
-test('calculates Offerzy rewards using exact integer arithmetic', () => {
+test('calculates Offerzy Coin rewards using exact integer arithmetic', () => {
   assert.equal(
-    calculateOfferzyRewardKobo('1.50', '1500.0000', 80),
+    calculateOfferzyRewardKobo('1500', '1500.0000', 80),
     '180000'
   );
 });
@@ -332,20 +332,26 @@ test('returns zero when customer reward percentage is zero', () => {
 
 test('rejects invalid calculator inputs', () => {
   assert.throws(
-    () => calculateOfferzyRewardKobo('-1.50', '1500.0000', 80)
+    () => calculateOfferzyRewardKobo('-1500', '1500.0000', 80)
   );
   assert.throws(
-    () => calculateOfferzyRewardKobo('1.50', '1000000.0001', 80)
+    () => calculateOfferzyRewardKobo('1500', '1000000.0001', 80)
   );
   assert.throws(
-    () => calculateOfferzyRewardKobo('1.50', '1500.0000', 101)
+    () => calculateOfferzyRewardKobo('1500', '1500.0000', 101)
   );
+});
+
+
+test('converts Offerzy rounded Coin rewards rather than raw USD payout', () => {
+  assert.equal(calculateOfferzyRewardKobo('6', '910.0000', 100), '546');
+  assert.equal(calculateOfferzyRewardKobo('25', '910.0000', 100), '2275');
 });
 
 test('rejects rewards exceeding the BIGINT wallet limit', () => {
   assert.throws(
     () => calculateOfferzyRewardKobo(
-      '999999999999.99999999',
+      '999999999999999999.99999999',
       '1000000.0000',
       100
     ),
