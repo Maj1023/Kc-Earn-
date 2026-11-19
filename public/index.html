@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#102B66">
+<meta name="description" content="KC EARN helps people discover verified online earning opportunities, track confirmed rewards and manage withdrawal requests. Offer availability depends on country and provider support.">
 <title>KC Earn — Earn more. Do more.</title>
 <style>
 *{box-sizing:border-box}
@@ -92,6 +93,32 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
 .message-actions{display:flex;gap:8px;flex-wrap:wrap}
 .message-actions button{flex:1;min-width:110px}
 .message-empty{color:#68758C;font-size:13px;padding:10px 2px}
+
+/* KC EARN visual polish and accessible interaction states */
+:root{color-scheme:light;--kc-navy:#102B66;--kc-blue:#1764DC;--kc-ink:#142B55;--kc-muted:#68758C;--kc-border:#E4EAF3;--kc-surface:#fff;--kc-canvas:#F4F7FC}
+html{min-height:100%;background:var(--kc-canvas);scroll-behavior:smooth}
+body{min-height:100vh;background:radial-gradient(ellipse at 50% -15%,#e2ecff 0,transparent 48%),var(--kc-canvas);color:var(--kc-ink);line-height:1.5}
+header{background:linear-gradient(145deg,#0D2456 0%,#123879 58%,#1764DC 130%);padding-bottom:62px}
+.logo{box-shadow:0 10px 28px rgba(3,18,52,.22);border:1px solid rgba(255,255,255,.65)}
+main{width:min(100% - 24px,560px);border:1px solid rgba(224,232,244,.9);box-shadow:0 18px 55px rgba(22,48,91,.08);margin-bottom:28px}
+.feature,.dashboard-card,.message-panel{border:1px solid var(--kc-border);box-shadow:0 3px 12px rgba(22,48,91,.035);transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
+.feature:hover,.dashboard-card[role="button"]:hover{transform:translateY(-2px);border-color:#c7d8f5;box-shadow:0 9px 22px rgba(22,48,91,.08)}
+button{box-shadow:0 5px 14px rgba(23,100,220,.14);transition:background .16s ease,transform .16s ease,box-shadow .16s ease}
+button:active{transform:translateY(1px);box-shadow:none}
+button:disabled{opacity:.58;cursor:not-allowed;box-shadow:none}
+button:focus-visible,a:focus-visible,[role="button"]:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid rgba(23,100,220,.32);outline-offset:3px}
+input,select,textarea{transition:border-color .16s ease,box-shadow .16s ease}
+input:focus,select:focus,textarea:focus{border-color:var(--kc-blue);box-shadow:0 0 0 3px rgba(23,100,220,.09)}
+.dashboard-card[role="button"]{cursor:pointer}
+.wallet-card{background:linear-gradient(135deg,#eaf1ff 0%,#f5f8ff 100%);border-color:#d8e5fb}
+.notice{border:1px solid #d9e6fb;background:#edf4ff}
+.message-bubble{border:1px solid #e5ebf4}
+.message-bubble.mine{border-color:#d6e4fb}
+.dashboard-heading{color:#18335F}
+@media(min-width:600px){main{width:min(100% - 40px,560px)}}
+@media(max-width:380px){main{width:calc(100% - 16px);padding-left:16px;padding-right:16px}.dashboard-grid{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition:none!important;animation:none!important}}
+
 </style>
 </head>
 <body>
