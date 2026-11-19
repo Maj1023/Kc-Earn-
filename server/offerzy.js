@@ -147,11 +147,11 @@ function parseOfferzyCallback(params) {
 
 
 function calculateOfferzyRewardKobo(rewardCoins, exchangeRate, rewardPercent) {
-  const rewardPattern = /^(?:0|[1-9]\\d{0,17})(?:\\.\\d{1,8})?$/;
-  const ratePattern = /^(?:0|[1-9]\\d{0,6})(?:\\.\\d{1,4})?$/;
+  const rewardPattern = /^(?:0|[1-9]\d{0,17})(?:\.\d{1,8})?$/;
+  const ratePattern = /^(?:0|[1-9]\d{0,6})(?:\.\d{1,4})?$/;
 
   if (typeof rewardCoins !== 'string' || !rewardPattern.test(rewardCoins) ||
-      /^0(?:\\.0+)?$/.test(rewardCoins)) {
+      /^0(?:\.0+)?$/.test(rewardCoins)) {
     throw new Error('Invalid positive Offerzy Coin reward.');
   }
 
