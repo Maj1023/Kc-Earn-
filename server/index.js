@@ -515,6 +515,29 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+function isMobileClient(req) {
+  return req.headers['x-kc-client'] === 'mobile' && !req.headers.origin;
+}
+
+function isAllowedApiPost(req, expectedOrigin, allowMobileLogin = false) {
+  const origin = req.headers.origin;
+
+  if (origin) {
+    try {
+      return Boolean(
+        expectedOrigin &&
+        new URL(origin).origin === new URL(expectedOrigin).origin
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  const authorization = req.headers.authorization || '';
+  const hasBearerToken = /^Bearer [a-f0-9]{64}$/.test(authorization);
+  return hasBearerToken || (allowMobileLogin && isMobileClient(req));
+}
+
 function getCookie(req, name) {
   const cookies = (req.headers.cookie || '').split(';');
 
@@ -543,10 +566,14 @@ async function createSession(userId, res) {
   res.setHeader('Set-Cookie',
     `kc_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86400}`
   );
+
+  return token;
 }
 
 async function getLoggedInUser(req) {
-  const token = getCookie(req, 'kc_session');
+  const authorization = req.headers.authorization || '';
+  const bearerMatch = authorization.match(/^Bearer ([a-f0-9]{64})$/);
+  const token = bearerMatch ? bearerMatch[1] : getCookie(req, 'kc_session');
 
   if (!token || !/^[a-f0-9]{64}$/.test(token)) {
     return null;
@@ -599,9 +626,10 @@ const server = http.createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
 
   try {
-    // Protect browser API requests against cross-site request forgery.
+    // Browser POSTs must match the configured origin. Native mobile requests
+    // have no Origin header and authenticate with an explicit bearer token.
+    // Only mobile registration/login may start a session without a token.
     if (req.method === 'POST' && pathname.startsWith('/api/')) {
-      const origin = req.headers.origin;
       const host = req.headers.host;
       const forwardedProto = String(
         req.headers['x-forwarded-proto'] || 'http'
@@ -609,20 +637,10 @@ const server = http.createServer(async (req, res) => {
 
       const expectedOrigin = process.env.APP_ORIGIN ||
         (host ? forwardedProto + '://' + host : '');
+      const allowMobileLogin =
+        pathname === '/api/register' || pathname === '/api/login';
 
-      let originMatches = false;
-
-      try {
-        originMatches = Boolean(
-          origin &&
-          expectedOrigin &&
-          new URL(origin).origin === new URL(expectedOrigin).origin
-        );
-      } catch {
-        originMatches = false;
-      }
-
-      if (!originMatches) {
+      if (!isAllowedApiPost(req, expectedOrigin, allowMobileLogin)) {
         return sendJson(res, 403, {
           error: 'Request origin not allowed.'
         });
@@ -731,11 +749,12 @@ const server = http.createServer(async (req, res) => {
         [user.id]
       );
 
-      await createSession(user.id, res);
+      const sessionToken = await createSession(user.id, res);
 
       return sendJson(res, 201, {
         message: 'Account created successfully.',
-        user: publicUser(user)
+        user: publicUser(user),
+        ...(isMobileClient(req) ? { sessionToken } : {})
       });
     }
 
@@ -769,11 +788,12 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      await createSession(user.id, res);
+      const sessionToken = await createSession(user.id, res);
 
       return sendJson(res, 200, {
         message: 'Login successful.',
-        user: publicUser(user)
+        user: publicUser(user),
+        ...(isMobileClient(req) ? { sessionToken } : {})
       });
     }
 
@@ -1980,7 +2000,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && pathname === '/api/logout') {
-      const token = getCookie(req, 'kc_session');
+      const authorization = req.headers.authorization || '';
+      const bearerMatch = authorization.match(/^Bearer ([a-f0-9]{64})$/);
+      const token = bearerMatch ? bearerMatch[1] : getCookie(req, 'kc_session');
 
       if (token && /^[a-f0-9]{64}$/.test(token)) {
         await pool.query(
