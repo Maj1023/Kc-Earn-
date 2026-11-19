@@ -513,3 +513,28 @@ test('accepts server callback rawQuery contract without fabricating params', asy
   assert.equal(result.status, 200);
   assert.equal(result.body, 'ok');
 });
+
+
+test('accepts a valid signature_v2 callback without the legacy signature', () => {
+  const params = makeParams();
+  params.delete('signature');
+  const unsignedQuery = params.toString();
+  const signatureV2 = crypto.createHmac('sha256', PRIVATE_KEY)
+    .update(unsignedQuery, 'utf8')
+    .digest('hex');
+  const rawQuery = unsignedQuery + '&signature_v2=' + signatureV2;
+  const parsed = parseOfferzyCallback(new URLSearchParams(rawQuery));
+
+  assert.ok(parsed.data);
+  assert.equal(parsed.data.signature, undefined);
+  assert.equal(verifyOfferzySignature(parsed.data, PRIVATE_KEY, rawQuery), true);
+});
+
+test('rejects callbacks when both signature formats are absent', () => {
+  const params = makeParams();
+  params.delete('signature');
+  assert.match(
+    parseOfferzyCallback(params).error,
+    /Missing required callback signature/
+  );
+});
