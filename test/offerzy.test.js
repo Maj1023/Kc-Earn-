@@ -325,7 +325,7 @@ test('rounds calculated rewards to the nearest kobo', () => {
 
 test('returns zero when customer reward percentage is zero', () => {
   assert.equal(
-    calculateOfferzyRewardKobo('1.50', '1500.0000', 0),
+    calculateOfferzyRewardKobo('1500', '1500.0000', 0),
     '0'
   );
 });
