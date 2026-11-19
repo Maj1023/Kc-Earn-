@@ -11,6 +11,8 @@ const CURRENCY_MINOR_UNITS = Object.freeze({
   TZS: 2, UGX: 0, XAF: 0, XOF: 0, ZAR: 2, ZMW: 2, ZWG: 2
 });
 
+const MAX_BIGINT = 9223372036854775807n;
+
 function getCurrencyMinorUnit(currency) {
   if (typeof currency !== 'string' || !Object.hasOwn(CURRENCY_MINOR_UNITS, currency)) {
     throw new TypeError('A supported ISO 4217 currency code is required.');
@@ -39,4 +41,52 @@ function formatMinorAmount(amountMinor, currency) {
   return (negative ? '-' : '') + whole.toString() + '.' + fraction;
 }
 
-module.exports = { getCurrencyMinorUnit, formatMinorAmount };
+// Convert signed Offerzy Coin rewards to a country's integer minor units.
+// Offerzy confirms 1,000 Coins = USD 1. The caller must supply a trusted,
+// current USD-to-local-currency rate; no guessed or hard-coded FX rate is used.
+// The caller must keep the FX rate and currency metadata with the ledger entry.
+function calculateOfferzyRewardMinor(rewardCoins, usdToLocalRate, rewardPercent, currency) {
+  const digits = getCurrencyMinorUnit(currency);
+  const coinPattern = /^(?:0|[1-9]\\d{0,17})(?:\\.\\d{1,8})?$/;
+  const ratePattern = /^(?:0|[1-9]\\d{0,8})(?:\\.\\d{1,8})?$/;
+
+  if (typeof rewardCoins !== 'string' || !coinPattern.test(rewardCoins) ||
+      /^0(?:\\.0+)?$/.test(rewardCoins)) {
+    throw new Error('Invalid positive Offerzy Coin reward.');
+  }
+  if (typeof usdToLocalRate !== 'string' || !ratePattern.test(usdToLocalRate) ||
+      /^0(?:\\.0+)?$/.test(usdToLocalRate)) {
+    throw new Error('A positive trusted USD-to-local-currency rate is required.');
+  }
+  if (typeof rewardPercent !== 'number' || !Number.isInteger(rewardPercent) ||
+      rewardPercent < 0 || rewardPercent > 100) {
+    throw new Error('Invalid customer reward percentage.');
+  }
+
+  function toScaledInteger(value, places) {
+    const [whole, fraction = ''] = value.split('.');
+    return BigInt(whole + fraction.padEnd(places, '0'));
+  }
+
+  const coins = toScaledInteger(rewardCoins, 8);
+  const rate = toScaledInteger(usdToLocalRate, 8);
+  if (rate > 1000000000n * 100000000n) {
+    throw new Error('Exchange rate exceeds the allowed maximum.');
+  }
+
+  // Minor units = Coins / 1,000 * USD/local rate * customer share * 10^digits.
+  const numerator = coins * rate * BigInt(rewardPercent) * (10n ** BigInt(digits));
+  const denominator = 1000000000000000000000n; // 10^8 * 10^8 * 1,000 * 100
+  const amountMinor = (numerator + denominator / 2n) / denominator;
+
+  if (amountMinor > MAX_BIGINT) {
+    throw new Error('Calculated reward exceeds the wallet limit.');
+  }
+  return amountMinor.toString();
+}
+
+module.exports = {
+  getCurrencyMinorUnit,
+  formatMinorAmount,
+  calculateOfferzyRewardMinor
+};
