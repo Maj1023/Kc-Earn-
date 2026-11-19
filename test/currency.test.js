@@ -52,3 +52,28 @@ test('every African country has an explicitly supported currency and precision',
     assert.ok([0, 2, 3].includes(getCurrencyMinorUnit(country.currency)), country.code);
   }
 });
+
+
+const { calculateOfferzyRewardMinor } = require('../server/currency');
+
+test('converts Offerzy Coins into local minor units using each currency precision', () => {
+  // 25 Coins = USD 0.025; illustrative FX inputs are exact test fixtures only.
+  assert.equal(calculateOfferzyRewardMinor('25', '600.00000000', 100, 'XOF'), '15');
+  assert.equal(calculateOfferzyRewardMinor('25', '130.50000000', 100, 'KES'), '326');
+  assert.equal(calculateOfferzyRewardMinor('25', '130.50000000', 100, 'LYD'), '3263');
+  assert.equal(calculateOfferzyRewardMinor('25', '1500.00000000', 80, 'NGN'), '3000');
+});
+
+test('requires a valid local currency, positive FX rate and valid customer share', () => {
+  assert.throws(() => calculateOfferzyRewardMinor('25', '0', 100, 'KES'));
+  assert.throws(() => calculateOfferzyRewardMinor('25', '130.5', 101, 'KES'));
+  assert.throws(() => calculateOfferzyRewardMinor('25', '130.5', 100, 'ZZZ'));
+  assert.throws(() => calculateOfferzyRewardMinor('-25', '130.5', 100, 'KES'));
+});
+
+test('all African catalog currencies can be used by the generic reward calculator', () => {
+  for (const country of AFRICAN_COUNTRIES) {
+    const amount = calculateOfferzyRewardMinor('25', '100.00000000', 100, country.currency);
+    assert.match(amount, /^[0-9]+$/, country.code);
+  }
+});
