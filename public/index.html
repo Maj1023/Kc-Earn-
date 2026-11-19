@@ -379,7 +379,7 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
     <div class="notice" id="withdrawalNotice"></div>
   </div>
 
-  <h2 class="dashboard-heading">Your withdrawal history</h2>
+  <h2 id="nigeriaWithdrawalHistoryHeading" class="dashboard-heading">Your withdrawal history</h2>
 
   <div id="withdrawalList" class="dashboard-card">
     Loading your withdrawal requests...
@@ -764,6 +764,7 @@ async function openWithdrawals() {
   document.getElementById('nigeriaWithdrawalInfo').hidden = !isNigeria;
   document.getElementById('nigeriaWithdrawalFormCard').hidden = !isNigeria;
   document.getElementById('withdrawalList').hidden = !isNigeria;
+  document.getElementById('nigeriaWithdrawalHistoryHeading').hidden = !isNigeria;
   if (isNigeria) await loadWithdrawals();
 }
 
