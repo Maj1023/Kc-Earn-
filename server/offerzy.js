@@ -8,8 +8,7 @@ const REQUIRED_FIELDS = [
   'reward',
   'payout',
   'transaction_id',
-  'offer_id',
-  'signature'
+  'offer_id'
 ];
 
 const REWARD_PATTERN = /^-?(?:0|[1-9]\d{0,17})(?:\.\d{1,8})?$/;
@@ -20,15 +19,39 @@ function isZeroAmount(value) {
   return /^-?0(?:\.0+)?$/.test(value);
 }
 
-function verifyOfferzySignature(data, privateKey) {
+function verifyOfferzySignature(data, privateKey, rawQuery) {
   if (!privateKey || typeof privateKey !== 'string') return false;
-  if (!/^[a-f0-9]{32}$/i.test(data.signature || '')) return false;
 
+  // Prefer Offerzy's v2 HMAC-SHA256 signature over the exact raw query
+  // string before the final signature_v2 parameter.
+  if (data.signature_v2 !== undefined) {
+    if (typeof rawQuery !== 'string' ||
+        !/^[a-f0-9]{64}$/i.test(data.signature_v2)) return false;
+
+    const marker = '&signature_v2=';
+    const markerIndex = rawQuery.lastIndexOf(marker);
+    if (markerIndex <= 0 ||
+        rawQuery.indexOf('signature_v2=') !== markerIndex + 1 ||
+        !/^signature_v2=[a-f0-9]{64}$/i.test(rawQuery.slice(markerIndex + 1))) {
+      return false;
+    }
+
+    const expected = crypto
+      .createHmac('sha256', privateKey)
+      .update(rawQuery.slice(0, markerIndex), 'utf8')
+      .digest();
+    const supplied = Buffer.from(data.signature_v2, 'hex');
+
+    return supplied.length === expected.length &&
+      crypto.timingSafeEqual(expected, supplied);
+  }
+
+  // Temporary migration fallback: legacy MD5 only when v2 is absent.
+  if (!/^[a-f0-9]{32}$/i.test(data.signature || '')) return false;
   const expected = crypto
     .createHash('md5')
     .update(data.user_id + data.reward + data.offer_id + privateKey, 'utf8')
     .digest();
-
   const supplied = Buffer.from(data.signature, 'hex');
 
   return supplied.length === expected.length &&
@@ -49,6 +72,11 @@ function parseOfferzyCallback(params) {
     if (typeof values[field] !== 'string' || values[field].length === 0) {
       return { error: 'Missing required callback parameter: ' + field };
     }
+  }
+
+  if ((!values.signature || values.signature.length === 0) &&
+      (!values.signature_v2 || values.signature_v2.length === 0)) {
+    return { error: 'Missing required callback signature.' };
   }
 
   if (!/^[1-9]\d{0,18}$/.test(values.user_id) ||
@@ -109,7 +137,8 @@ function parseOfferzyCallback(params) {
       sub3: values.sub3 || null,
       sub4: values.sub4 || null,
       sub5: values.sub5 || null,
-      signature: values.signature
+      signature: values.signature,
+      signature_v2: values.signature_v2
     }
   };
 }
@@ -161,12 +190,20 @@ function calculateOfferzyRewardKobo(payoutUsd, exchangeRate, rewardPercent) {
 }
 
 
-async function handleOfferzyPostback({ params, pool, privateKey }) {
+async function handleOfferzyPostback({ rawQuery, params, pool, privateKey }) {
   if (!privateKey) {
     return { status: 503, body: 'Offerzy callback is not configured.' };
   }
 
-  const parsed = parseOfferzyCallback(params);
+  let callbackParams = params;
+  if (typeof rawQuery === 'string') {
+    callbackParams = new URLSearchParams(rawQuery);
+  }
+  if (!(callbackParams instanceof URLSearchParams)) {
+    return { status: 400, body: 'Invalid callback query.' };
+  }
+
+  const parsed = parseOfferzyCallback(callbackParams);
 
   if (parsed.error) {
     return { status: 400, body: parsed.error };
@@ -174,7 +211,7 @@ async function handleOfferzyPostback({ params, pool, privateKey }) {
 
   const data = parsed.data;
 
-  if (!verifyOfferzySignature(data, privateKey)) {
+  if (!verifyOfferzySignature(data, privateKey, rawQuery)) {
     return { status: 403, body: 'Invalid Offerzy signature.' };
   }
 
