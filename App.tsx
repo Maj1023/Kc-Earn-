@@ -30,6 +30,16 @@ type Wallet = { balanceNaira: string; currency: string };
 const API_URL = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/+$/, '');
 const TOKEN_KEY = 'kc_earn_session_token';
 
+class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function apiRequest<T>(
   path: string,
   options: { method?: string; body?: unknown; token?: string; mobileAuth?: boolean } = {}
