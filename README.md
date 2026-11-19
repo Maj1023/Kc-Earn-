@@ -6,7 +6,7 @@ KC Earn is a mobile rewards platform with customer accounts, a rewards wallet, t
 
 1. Install dependencies with `npm ci`.
 2. Copy `.env.example` to `.env`.
-3. Set `EXPO_PUBLIC_API_URL` to the public HTTPS base URL of the deployed KC Earn API. Do not include a trailing slash or an `/api` suffix.
+3. The app defaults to the deployed API at `https://kc-earn.onrender.com`. To override it for another environment, set `EXPO_PUBLIC_API_URL` to the public HTTPS base URL without a trailing slash or an `/api` suffix.
 4. Start the Expo app with `npm start`.
 
 The mobile app uses the existing backend endpoints for registration, login, the signed-in customer profile, wallet balance, and wallet transactions. Mobile session tokens are stored with Expo SecureStore and sent as bearer tokens. The backend continues to enforce matching Origin headers for browser POST requests; native requests use the explicit mobile client header for registration/login and bearer authentication for later POST requests.
