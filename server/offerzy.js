@@ -146,13 +146,13 @@ function parseOfferzyCallback(params) {
 }
 
 
-function calculateOfferzyRewardKobo(payoutUsd, exchangeRate, rewardPercent) {
-  const payoutPattern = /^(?:0|[1-9]\d{0,11})(?:\.\d{1,8})?$/;
-  const ratePattern = /^(?:0|[1-9]\d{0,6})(?:\.\d{1,4})?$/;
+function calculateOfferzyRewardKobo(rewardCoins, exchangeRate, rewardPercent) {
+  const rewardPattern = /^(?:0|[1-9]\\d{0,17})(?:\\.\\d{1,8})?$/;
+  const ratePattern = /^(?:0|[1-9]\\d{0,6})(?:\\.\\d{1,4})?$/;
 
-  if (typeof payoutUsd !== 'string' || !payoutPattern.test(payoutUsd) ||
-      /^0(?:\.0+)?$/.test(payoutUsd)) {
-    throw new Error('Invalid positive USD payout.');
+  if (typeof rewardCoins !== 'string' || !rewardPattern.test(rewardCoins) ||
+      /^0(?:\\.0+)?$/.test(rewardCoins)) {
+    throw new Error('Invalid positive Offerzy Coin reward.');
   }
 
   if (typeof exchangeRate !== 'string' ||
@@ -171,15 +171,17 @@ function calculateOfferzyRewardKobo(payoutUsd, exchangeRate, rewardPercent) {
     return BigInt(whole + fraction.padEnd(decimalPlaces, '0'));
   }
 
-  const payout = toScaledInteger(payoutUsd, 8);
+  const coins = toScaledInteger(rewardCoins, 8);
   const rate = toScaledInteger(exchangeRate, 4);
 
   if (rate > 1000000n * 10000n) {
     throw new Error('Exchange rate exceeds the allowed maximum.');
   }
 
-  const denominator = 1000000000000n;
-  const numerator = payout * rate * BigInt(rewardPercent);
+  // This placement defines 1,000 Offerzy Coins as USD 1.
+  // Convert signed Coins to NGN, apply the customer share, then to kobo.
+  const denominator = 1000000000000000n;
+  const numerator = coins * rate * BigInt(rewardPercent);
 
   // Round half up to the nearest whole kobo.
   const rewardKobo = (numerator + denominator / 2n) / denominator;
@@ -508,7 +510,7 @@ async function handleOfferzyPostback({ rawQuery, params, pool, privateKey }) {
 
     const grossReward = BigInt(
       calculateOfferzyRewardKobo(
-        data.payout,
+        data.reward,
         exchangeRate,
         rewardPercent
       )
