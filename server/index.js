@@ -4,7 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
-const { insertRegisteredUser } = require('./account-registration');
+const { registerAccount } = require('./account-registration');
 const { AFRICAN_COUNTRIES, getAfricanCountry } = require('./african-countries');
 const { formatMinorAmount, getCurrencyMinorUnit } = require('./currency');
 const { handleOfferzyPostback } = require('./offerzy');
@@ -782,17 +782,22 @@ const server = http.createServer(async (req, res) => {
       }
 
       const passwordHash = await bcrypt.hash(password, 12);
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = hashToken(sessionToken);
+      const expiresAt = new Date(Date.now() + SESSION_MS);
 
-      let result;
+      let user;
 
       try {
-        result = await insertRegisteredUser(pool, {
+        // User, wallet, currency account and session commit together. This
+        // prevents partially-created accounts if any setup step fails.
+        user = await registerAccount(pool, {
           fullName,
           email,
           passwordHash,
           countryCode: country.code,
-          currency: country.currency,
-          role: body.role
+          tokenHash,
+          expiresAt
         });
       } catch (error) {
         if (error.code === '23505') {
@@ -803,18 +808,9 @@ const server = http.createServer(async (req, res) => {
         throw error;
       }
 
-      const user = result.rows[0];
-
-      await pool.query(
-        'INSERT INTO wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
-        [user.id]
+      res.setHeader('Set-Cookie',
+        `kc_session=${sessionToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86400}`
       );
-      await pool.query(
-        'INSERT INTO wallet_accounts (user_id, currency) VALUES ($1, $2) ON CONFLICT (user_id, currency) DO NOTHING',
-        [user.id, user.currency]
-      );
-
-      await createSession(user.id, res);
 
       return sendJson(res, 201, {
         message: 'Account created successfully.',
