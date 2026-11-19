@@ -134,6 +134,10 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
     <p class="description">Join KC Earn and explore earning opportunities.</p>
     <form id="registerForm" onsubmit="registerAccount(event)">
       <input type="text" name="fullName" placeholder="Full name" required maxlength="100">
+      <select name="countryCode" required aria-label="Country of residence">
+        <option value="" selected disabled>Select your African country</option>
+        <option value="DZ">Algeria</option><option value="AO">Angola</option><option value="BJ">Benin</option><option value="BW">Botswana</option><option value="BF">Burkina Faso</option><option value="BI">Burundi</option><option value="CV">Cabo Verde</option><option value="CM">Cameroon</option><option value="CF">Central African Republic</option><option value="TD">Chad</option><option value="KM">Comoros</option><option value="CG">Republic of the Congo</option><option value="CD">Democratic Republic of the Congo</option><option value="CI">Côte d’Ivoire</option><option value="DJ">Djibouti</option><option value="EG">Egypt</option><option value="GQ">Equatorial Guinea</option><option value="ER">Eritrea</option><option value="SZ">Eswatini</option><option value="ET">Ethiopia</option><option value="GA">Gabon</option><option value="GM">Gambia</option><option value="GH">Ghana</option><option value="GN">Guinea</option><option value="GW">Guinea-Bissau</option><option value="KE">Kenya</option><option value="LS">Lesotho</option><option value="LR">Liberia</option><option value="LY">Libya</option><option value="MG">Madagascar</option><option value="MW">Malawi</option><option value="ML">Mali</option><option value="MR">Mauritania</option><option value="MU">Mauritius</option><option value="MA">Morocco</option><option value="MZ">Mozambique</option><option value="NA">Namibia</option><option value="NE">Niger</option><option value="NG">Nigeria</option><option value="RW">Rwanda</option><option value="ST">São Tomé and Príncipe</option><option value="SN">Senegal</option><option value="SC">Seychelles</option><option value="SL">Sierra Leone</option><option value="SO">Somalia</option><option value="ZA">South Africa</option><option value="SS">South Sudan</option><option value="SD">Sudan</option><option value="TZ">Tanzania</option><option value="TG">Togo</option><option value="TN">Tunisia</option><option value="UG">Uganda</option><option value="ZM">Zambia</option><option value="ZW">Zimbabwe</option>
+      </select>
       <input type="email" name="email" placeholder="Email address" required maxlength="255">
       <input type="password" name="password" placeholder="Password" required minlength="8" maxlength="72">
       <button type="submit">Create Account</button>
@@ -521,7 +525,8 @@ async function registerAccount(event) {
     const result = await sendAccountRequest('/api/register', {
       fullName: form.elements.fullName.value,
       email: form.elements.email.value,
-      password: form.elements.password.value
+      password: form.elements.password.value,
+      countryCode: form.elements.countryCode.value
     });
 
     form.elements.password.value = '';
