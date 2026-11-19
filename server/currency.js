@@ -20,11 +20,15 @@ function getCurrencyMinorUnit(currency) {
 
 function formatMinorAmount(amountMinor, currency) {
   const digits = getCurrencyMinorUnit(currency);
-  if (!(typeof amountMinor === 'bigint' ||
-        (typeof amountMinor === 'number' && Number.isSafeInteger(amountMinor)) ||
-        (typeof amountMinor === 'string' && /^-?[0-9]+$/.test(amountMinor))) {
+  const isIntegerMinorAmount =
+    typeof amountMinor === 'bigint' ||
+    (typeof amountMinor === 'number' && Number.isSafeInteger(amountMinor)) ||
+    (typeof amountMinor === 'string' && /^-?[0-9]+$/.test(amountMinor));
+
+  if (!isIntegerMinorAmount) {
     throw new TypeError('Amount must be an integer number of minor units.');
   }
+
   const amount = BigInt(amountMinor);
   const negative = amount < 0n;
   const absolute = negative ? -amount : amount;
