@@ -3,7 +3,8 @@ name: Tests
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, feature/pan-africa-country-foundation]
+  workflow_dispatch:
 
 jobs:
   node-tests:
