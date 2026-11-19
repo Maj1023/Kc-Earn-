@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   SafeAreaView,
@@ -255,10 +256,19 @@ export default function App() {
                   })}
                 </View>
                 {user.countryCode === 'NG' ? (
-                  <View style={styles.noticeCard}>
-                    <Text style={styles.noticeTitle}>Nigeria services</Text>
-                    <Text style={styles.noticeText}>Offerzy and Nigerian withdrawal features are available through the existing web account. This mobile screen currently provides account access and wallet balance.</Text>
-                  </View>
+                  <>
+                    <View style={styles.noticeCard}>
+                      <Text style={styles.noticeTitle}>Nigeria services</Text>
+                      <Text style={styles.noticeText}>Offerzy tasks and Nigerian withdrawal requests are currently available through the KC EARN web dashboard.</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.primaryButton}
+                      onPress={() => Linking.openURL(API_BASE_URL).catch(() => Alert.alert('KC EARN', 'Unable to open the web dashboard. Please try again.'))}
+                    >
+                      <Text style={styles.primaryText}>Open full KC EARN dashboard</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.emptyText}>You may need to sign in again in your browser.</Text>
+                  </>
                 ) : (
                   <View style={styles.noticeCard}>
                     <Text style={styles.noticeTitle}>Local earning and withdrawals not active yet</Text>
