@@ -8,8 +8,7 @@ const REQUIRED_FIELDS = [
   'reward',
   'payout',
   'transaction_id',
-  'offer_id',
-  'signature'
+  'offer_id'
 ];
 
 const REWARD_PATTERN = /^-?(?:0|[1-9]\d{0,17})(?:\.\d{1,8})?$/;
@@ -72,6 +71,13 @@ function parseOfferzyCallback(params) {
   for (const field of REQUIRED_FIELDS) {
     if (typeof values[field] !== 'string' || values[field].length === 0) {
       return { error: 'Missing required callback parameter: ' + field };
+    }
+  }
+
+  if (typeof values.signature !== 'string' || values.signature.length === 0) {
+    if (typeof values.signature_v2 !== 'string' ||
+        values.signature_v2.length === 0) {
+      return { error: 'Missing required callback signature.' };
     }
   }
 
