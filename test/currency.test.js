@@ -24,3 +24,20 @@ test('invalid currency and fractional minor-unit inputs are rejected', () => {
   assert.throws(() => getCurrencyMinorUnit('naira'), TypeError);
   assert.throws(() => formatMinorAmount('1.2', 'NGN'), TypeError);
 });
+
+const { AFRICAN_COUNTRIES, getAfricanCountry } = require('../server/african-countries');
+
+test('the account country catalog covers all 54 African countries exactly once', () => {
+  assert.equal(AFRICAN_COUNTRIES.length, 54);
+  assert.equal(new Set(AFRICAN_COUNTRIES.map(country => country.code)).size, 54);
+  assert.equal(getAfricanCountry('ng').currency, 'NGN');
+  assert.equal(getAfricanCountry('CI').currency, 'XOF');
+  assert.equal(getAfricanCountry('XX'), null);
+});
+
+test('every African country has a valid currency and supported minor-unit precision', () => {
+  for (const country of AFRICAN_COUNTRIES) {
+    assert.match(country.currency, /^[A-Z]{3}$/, country.code);
+    assert.ok([0, 2].includes(getCurrencyMinorUnit(country.currency)), country.code);
+  }
+});
