@@ -610,18 +610,22 @@ async function loadWallet() {
     }
 
     const result = await response.json();
-    const amount = Number(result.wallet.balanceNaira);
+    const wallet = result.wallet || {};
+    const currency = wallet.currency || 'NGN';
+    const amount = Number(wallet.balance ?? wallet.balanceNaira);
 
     if (!Number.isFinite(amount)) {
       throw new Error('Invalid wallet balance.');
     }
 
-    balance.textContent = new Intl.NumberFormat('en-NG', {
+    balance.textContent = new Intl.NumberFormat('en', {
       style: 'currency',
-      currency: 'NGN'
+      currency
     }).format(amount);
 
-    status.textContent = 'Your available wallet balance.';
+    status.textContent = currency === 'NGN'
+      ? 'Your available wallet balance.'
+      : 'Your wallet is displayed in ' + currency + '. Local earning and withdrawals are not enabled yet.';
   } catch (error) {
     status.textContent = 'Unable to load balance. Please refresh.';
     console.error('Wallet error:', error);
@@ -663,7 +667,8 @@ async function loadTransactions() {
 
     result.transactions.forEach(transaction => {
       const credit = transaction.type === 'credit';
-      const amount = Number(transaction.amountNaira);
+      const amount = Number(transaction.amount ?? transaction.amountNaira);
+      const currency = transaction.currency || result.currency || 'NGN';
 
       const card = document.createElement('div');
       card.className = 'dashboard-card';
@@ -674,9 +679,9 @@ async function loadTransactions() {
 
       const value = document.createElement('h2');
       value.textContent = (credit ? '+' : '−') +
-        new Intl.NumberFormat('en-NG', {
+        new Intl.NumberFormat('en', {
           style: 'currency',
-          currency: 'NGN'
+          currency
         }).format(amount);
 
       const date = document.createElement('small');
