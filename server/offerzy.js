@@ -418,6 +418,28 @@ async function handleOfferzyPostback({ params, pool, privateKey }) {
       return { status: 200, body: 'duplicate' };
     }
 
+    // Offerzy rewards are currently settled and accounted for in NGN only.
+    // Never credit a non-Nigerian account with a mislabeled NGN amount.
+    // Keep the callback retryable until that market has a verified local
+    // currency conversion and payout route. Reversals above remain processable.
+    const customerMarket = await client.query(
+      'SELECT country_code FROM users WHERE id = $1 FOR SHARE',
+      [data.user_id]
+    );
+
+    if (!customerMarket.rowCount) {
+      await client.query('ROLLBACK');
+      return { status: 400, body: 'Unknown KC Earn user.' };
+    }
+
+    if (customerMarket.rows[0].country_code !== 'NG') {
+      await client.query('ROLLBACK');
+      return {
+        status: 503,
+        body: 'Rewards are not yet enabled for this country; retry later.'
+      };
+    }
+
     // Lock settings so the rate and percentage cannot change mid-credit.
     const settingsResult = await client.query(
       `SELECT user_reward_percent,
