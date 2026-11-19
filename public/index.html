@@ -202,7 +202,7 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openOfferzyWall();}">
       <span class="emoji">🎯</span>
       <strong>Online Offers</strong>
-      <small>Browse available offers and earn rewards</small>
+      <small id="offerzyAvailabilityText">Browse available offers and earn rewards</small>
     </div>
     <div class="dashboard-card">
       <span class="emoji">👥</span>
@@ -214,7 +214,7 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
       <strong>Transactions</strong>
       <small>View transaction history</small>
     </div>
-    <div class="dashboard-card" onclick="openWithdrawals()" role="button" tabindex="0">
+    <div id="withdrawalsDashboardCard" class="dashboard-card" onclick="openWithdrawals()" role="button" tabindex="0">
       <span class="emoji">💸</span>
       <strong>Withdrawals</strong>
       <small>View withdrawal requests</small>
@@ -300,12 +300,17 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
   <h1>Withdrawal History</h1>
   <p class="description">View the status of your withdrawal requests.</p>
 
-  <div class="dashboard-card">
+  <div id="nonNigeriaWithdrawalNotice" class="dashboard-card" hidden>
+    <h2>Local withdrawals are not available yet</h2>
+    <p>KC EARN has recorded your account in its local currency, but a verified payout provider and settlement route for your country have not been activated. No withdrawal request or fee will be taken. Your balance will remain in your account.</p>
+  </div>
+
+  <div id="nigeriaWithdrawalInfo" class="dashboard-card">
     <strong>Minimum withdrawal: ₦200</strong>
     <p>Withdrawals are subject to administrator review.</p>
   </div>
 
-  <div class="dashboard-card">
+  <div id="nigeriaWithdrawalFormCard" class="dashboard-card">
     <h2>Request a withdrawal</h2>
     <p>Minimum amount: ₦200. Enter your correct account details.</p>
 
@@ -566,8 +571,16 @@ async function loginAccount(event) {
 }
 
 
+let currentCountryCode = 'NG';
+
 function openDashboard(user) {
   messagingCurrentUserId = String(user.id);
+  currentCountryCode = String(user.countryCode || 'NG').toUpperCase();
+  const isNigeria = currentCountryCode === 'NG';
+  document.getElementById('withdrawalsDashboardCard').hidden = !isNigeria;
+  document.getElementById('offerzyAvailabilityText').textContent = isNigeria
+    ? 'Browse available offers and earn rewards'
+    : 'Not active in your country yet — verified local rewards are not available';
   document.getElementById('dashboardWelcome').textContent =
     'Welcome, ' + user.fullName + '!';
   document.getElementById('dashboardName').textContent = user.fullName;
@@ -578,6 +591,11 @@ function openDashboard(user) {
 }
 
 function openOfferzyWall() {
+  if (currentCountryCode !== 'NG') {
+    showNotice('dashboard', 'Offerzy rewards are not yet enabled for your country. We will not send you to offers that cannot currently be credited to your local-currency wallet.');
+    return;
+  }
+
   if (!messagingCurrentUserId ||
       !/^[1-9]\d*$/.test(messagingCurrentUserId)) {
     showNotice('dashboard', 'Please sign in again before opening offers.');
@@ -741,7 +759,12 @@ async function submitWithdrawal(event) {
 
 async function openWithdrawals() {
   showPage('withdrawals');
-  await loadWithdrawals();
+  const isNigeria = currentCountryCode === 'NG';
+  document.getElementById('nonNigeriaWithdrawalNotice').hidden = isNigeria;
+  document.getElementById('nigeriaWithdrawalInfo').hidden = !isNigeria;
+  document.getElementById('nigeriaWithdrawalFormCard').hidden = !isNigeria;
+  document.getElementById('withdrawalList').hidden = !isNigeria;
+  if (isNigeria) await loadWithdrawals();
 }
 
 async function loadWithdrawals() {
