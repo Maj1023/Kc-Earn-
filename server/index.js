@@ -732,6 +732,17 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'GET' && pathname === '/api/countries') {
+      const { AFRICAN_COUNTRIES } = require('./african-countries');
+      return sendJson(res, 200, {
+        countries: AFRICAN_COUNTRIES.map(country => ({
+          code: country.code,
+          name: country.name,
+          currency: country.currency
+        }))
+      });
+    }
+
     if (req.method === 'POST' && pathname === '/api/register') {
       const body = await readJson(req);
       const fullName = typeof body.fullName === 'string'
