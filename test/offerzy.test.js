@@ -106,6 +106,13 @@ function makeFakePool(options = {}) {
         return options.original || { rowCount: 0, rows: [] };
       }
 
+      if (sql.includes('SELECT country_code FROM users')) {
+        return options.customerMarket || {
+          rowCount: 1,
+          rows: [{ country_code: 'NG' }]
+        };
+      }
+
       if (sql.includes('FROM reward_settings')) {
         return options.settings || {
           rowCount: 1,
@@ -217,6 +224,28 @@ test('credits a valid conversion to the customer wallet', async () => {
   assert.ok(fake.queries.some(q => q.sql === 'COMMIT'));
 });
 
+test('does not credit an NGN reward to a non-Nigerian account', async () => {
+  const fake = makeFakePool({
+    customerMarket: {
+      rowCount: 1,
+      rows: [{ country_code: 'KE' }]
+    }
+  });
+
+  const result = await handleOfferzyPostback({
+    params: makeParams(),
+    pool: fake.pool,
+    privateKey: PRIVATE_KEY
+  });
+
+  assert.equal(result.status, 503);
+  assert.match(result.body, /not yet enabled for this country/);
+  assert.ok(fake.queries.some(q => q.sql === 'ROLLBACK'));
+  assert.ok(!fake.queries.some(q =>
+    q.sql.includes('INSERT INTO offerzy_postbacks')
+  ));
+});
+
 test('acknowledges repeated conversion as duplicate', async () => {
   const fake = makeFakePool({
     insert: { rowCount: 0, rows: [] }
@@ -280,43 +309,49 @@ test('rejects a reversal when its original conversion is missing', async () => {
 });
 
 
-test('calculates Offerzy rewards using exact integer arithmetic', () => {
+test('calculates Offerzy Coin rewards using exact integer arithmetic', () => {
   assert.equal(
-    calculateOfferzyRewardKobo('1.50', '1500.0000', 80),
+    calculateOfferzyRewardKobo('1500', '1500.0000', 80),
     '180000'
   );
 });
 
 test('rounds calculated rewards to the nearest kobo', () => {
   assert.equal(
-    calculateOfferzyRewardKobo('0.00000100', '5000.0000', 100),
+    calculateOfferzyRewardKobo('0.001', '5000.0000', 100),
     '1'
   );
 });
 
 test('returns zero when customer reward percentage is zero', () => {
   assert.equal(
-    calculateOfferzyRewardKobo('1.50', '1500.0000', 0),
+    calculateOfferzyRewardKobo('1500', '1500.0000', 0),
     '0'
   );
 });
 
 test('rejects invalid calculator inputs', () => {
   assert.throws(
-    () => calculateOfferzyRewardKobo('-1.50', '1500.0000', 80)
+    () => calculateOfferzyRewardKobo('-1500', '1500.0000', 80)
   );
   assert.throws(
-    () => calculateOfferzyRewardKobo('1.50', '1000000.0001', 80)
+    () => calculateOfferzyRewardKobo('1500', '1000000.0001', 80)
   );
   assert.throws(
-    () => calculateOfferzyRewardKobo('1.50', '1500.0000', 101)
+    () => calculateOfferzyRewardKobo('1500', '1500.0000', 101)
   );
+});
+
+
+test('converts Offerzy rounded Coin rewards rather than raw USD payout', () => {
+  assert.equal(calculateOfferzyRewardKobo('6', '910.0000', 100), '546');
+  assert.equal(calculateOfferzyRewardKobo('25', '910.0000', 100), '2275');
 });
 
 test('rejects rewards exceeding the BIGINT wallet limit', () => {
   assert.throws(
     () => calculateOfferzyRewardKobo(
-      '999999999999.99999999',
+      '999999999999999999.99999999',
       '1000000.0000',
       100
     ),
@@ -432,4 +467,80 @@ test('uses future verified earnings to repay debt before wallet credit', async (
   ]);
 
   assert.ok(fake.queries.some(q => q.sql === 'COMMIT'));
+});
+
+
+test('verifies Offerzy signature_v2 against the exact raw query string', () => {
+  const base = makeParams().toString();
+  const signatureV2 = crypto.createHmac('sha256', PRIVATE_KEY)
+    .update(base, 'utf8')
+    .digest('hex');
+  const rawQuery = base + '&signature_v2=' + signatureV2;
+  const parsed = parseOfferzyCallback(new URLSearchParams(rawQuery));
+
+  assert.ok(parsed.data);
+  assert.equal(
+    verifyOfferzySignature(parsed.data, PRIVATE_KEY, rawQuery),
+    true
+  );
+  assert.equal(
+    verifyOfferzySignature(parsed.data, PRIVATE_KEY, rawQuery.replace('payout=1.50', 'payout=1.51')),
+    false
+  );
+});
+
+test('rejects signature_v2 unless it is the final unique raw query parameter', () => {
+  const base = makeParams().toString();
+  const signatureV2 = crypto.createHmac('sha256', PRIVATE_KEY)
+    .update(base, 'utf8')
+    .digest('hex');
+  const rawQuery = base + '&signature_v2=' + signatureV2 + '&extra=1';
+  const parsed = parseOfferzyCallback(new URLSearchParams(rawQuery));
+
+  assert.ok(parsed.data);
+  assert.equal(
+    verifyOfferzySignature(parsed.data, PRIVATE_KEY, rawQuery),
+    false
+  );
+});
+
+test('accepts server callback rawQuery contract without fabricating params', async () => {
+  const base = makeParams().toString();
+  const signatureV2 = crypto.createHmac('sha256', PRIVATE_KEY)
+    .update(base, 'utf8')
+    .digest('hex');
+  const fake = makeFakePool();
+  const result = await handleOfferzyPostback({
+    rawQuery: base + '&signature_v2=' + signatureV2,
+    pool: fake.pool,
+    privateKey: PRIVATE_KEY
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body, 'ok');
+});
+
+
+test('accepts a valid signature_v2 callback without the legacy signature', () => {
+  const params = makeParams();
+  params.delete('signature');
+  const unsignedQuery = params.toString();
+  const signatureV2 = crypto.createHmac('sha256', PRIVATE_KEY)
+    .update(unsignedQuery, 'utf8')
+    .digest('hex');
+  const rawQuery = unsignedQuery + '&signature_v2=' + signatureV2;
+  const parsed = parseOfferzyCallback(new URLSearchParams(rawQuery));
+
+  assert.ok(parsed.data);
+  assert.equal(parsed.data.signature, undefined);
+  assert.equal(verifyOfferzySignature(parsed.data, PRIVATE_KEY, rawQuery), true);
+});
+
+test('rejects callbacks when both signature formats are absent', () => {
+  const params = makeParams();
+  params.delete('signature');
+  assert.match(
+    parseOfferzyCallback(params).error,
+    /Missing required callback signature/
+  );
 });

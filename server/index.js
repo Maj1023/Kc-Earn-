@@ -4,7 +4,9 @@ const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
-const { insertRegisteredUser } = require('./account-registration');
+const { registerAccount } = require('./account-registration');
+const { AFRICAN_COUNTRIES, getAfricanCountry } = require('./african-countries');
+const { formatMinorAmount, getCurrencyMinorUnit } = require('./currency');
 const { handleOfferzyPostback } = require('./offerzy');
 const {
   ADMIN_ROLE_LOCK_SQL,
@@ -44,6 +46,13 @@ async function initializeDatabase() {
       password_hash TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+
+  // Existing accounts remain Nigerian unless a customer explicitly selected another country.
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS country_code CHAR(2) NOT NULL DEFAULT 'NG',
+    ADD COLUMN IF NOT EXISTS currency CHAR(3) NOT NULL DEFAULT 'NGN'
   `);
 
   // Administrator roles are provisioned explicitly. ADMIN_EMAIL is not used
@@ -138,10 +147,49 @@ async function initializeDatabase() {
     ON wallet_transactions(user_id, created_at DESC)
   `);
 
+  // Currency-aware accounts are separate from the legacy NGN kobo wallet.
+  // Existing Nigerian balances remain in wallets and are never reinterpreted.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wallet_accounts (
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      currency CHAR(3) NOT NULL,
+      balance_minor BIGINT NOT NULL DEFAULT 0 CHECK (balance_minor >= 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, currency)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wallet_entries (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      currency CHAR(3) NOT NULL,
+      entry_type VARCHAR(10) NOT NULL CHECK (entry_type IN ('credit', 'debit')),
+      amount_minor BIGINT NOT NULL CHECK (amount_minor > 0),
+      description VARCHAR(255) NOT NULL,
+      reference VARCHAR(100) UNIQUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      FOREIGN KEY (user_id, currency)
+        REFERENCES wallet_accounts(user_id, currency) ON DELETE CASCADE
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS wallet_entries_user_currency_idx
+    ON wallet_entries(user_id, currency, created_at DESC)
+  `);
+
   await pool.query(`
     INSERT INTO wallets (user_id)
     SELECT id FROM users
     ON CONFLICT (user_id) DO NOTHING
+  `);
+
+  await pool.query(`
+    INSERT INTO wallet_accounts (user_id, currency)
+    SELECT id, currency FROM users
+    ON CONFLICT (user_id, currency) DO NOTHING
   `);
 
 
@@ -562,6 +610,7 @@ async function getLoggedInUser(req) {
 
   const result = await pool.query(
     `SELECT users.id, users.full_name, users.email, users.created_at, users.role,
+            users.country_code, users.currency,
             sessions.expires_at AS session_expires_at
      FROM sessions
      JOIN users ON users.id = sessions.user_id
@@ -593,6 +642,8 @@ function publicUser(user) {
     id: user.id,
     fullName: user.full_name,
     email: user.email,
+    countryCode: user.country_code || 'NG',
+    currency: user.currency || 'NGN',
     isAdmin: user.role === 'admin',
     createdAt: user.created_at
   };
@@ -681,6 +732,16 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'GET' && pathname === '/api/countries') {
+      return sendJson(res, 200, {
+        countries: AFRICAN_COUNTRIES.map(country => ({
+          code: country.code,
+          name: country.name,
+          currency: country.currency
+        }))
+      });
+    }
+
     if (req.method === 'POST' && pathname === '/api/register') {
       const body = await readJson(req);
       const fullName = typeof body.fullName === 'string'
@@ -692,6 +753,13 @@ const server = http.createServer(async (req, res) => {
       const password = typeof body.password === 'string'
         ? body.password
         : '';
+      const country = getAfricanCountry(body.countryCode);
+
+      if (!country) {
+        return sendJson(res, 400, {
+          error: 'Select a valid African country.'
+        });
+      }
 
       if (fullName.length < 2 || fullName.length > 100) {
         return sendJson(res, 400, {
@@ -714,15 +782,22 @@ const server = http.createServer(async (req, res) => {
       }
 
       const passwordHash = await bcrypt.hash(password, 12);
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = hashToken(sessionToken);
+      const expiresAt = new Date(Date.now() + SESSION_MS);
 
-      let result;
+      let user;
 
       try {
-        result = await insertRegisteredUser(pool, {
+        // User, wallet, currency account and session commit together. This
+        // prevents partially-created accounts if any setup step fails.
+        user = await registerAccount(pool, {
           fullName,
           email,
           passwordHash,
-          role: body.role
+          countryCode: country.code,
+          tokenHash,
+          expiresAt
         });
       } catch (error) {
         if (error.code === '23505') {
@@ -733,14 +808,9 @@ const server = http.createServer(async (req, res) => {
         throw error;
       }
 
-      const user = result.rows[0];
-
-      await pool.query(
-        'INSERT INTO wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
-        [user.id]
+      res.setHeader('Set-Cookie',
+        `kc_session=${sessionToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86400}`
       );
-
-      await createSession(user.id, res);
 
       return sendJson(res, 201, {
         message: 'Account created successfully.',
@@ -765,7 +835,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const result = await pool.query(
-        `SELECT id, full_name, email, password_hash, role, created_at
+        `SELECT id, full_name, email, password_hash, role, country_code, currency, created_at
          FROM users WHERE email = $1`,
         [email]
       );
@@ -793,6 +863,28 @@ const server = http.createServer(async (req, res) => {
       if (!user) {
         return sendJson(res, 401, {
           error: 'Please sign in.'
+        });
+      }
+
+      if ((user.country_code || 'NG') !== 'NG') {
+        const currency = user.currency;
+        await pool.query(
+          'INSERT INTO wallet_accounts (user_id, currency) VALUES ($1, $2) ON CONFLICT (user_id, currency) DO NOTHING',
+          [user.id, currency]
+        );
+        const account = await pool.query(
+          'SELECT balance_minor::text AS balance_minor FROM wallet_accounts WHERE user_id = $1 AND currency = $2',
+          [user.id, currency]
+        );
+        const balanceMinor = account.rows[0].balance_minor;
+        return sendJson(res, 200, {
+          wallet: {
+            balanceMinor,
+            balance: formatMinorAmount(balanceMinor, currency),
+            currency,
+            minorUnit: getCurrencyMinorUnit(currency),
+            countryCode: user.country_code
+          }
         });
       }
 
@@ -826,6 +918,36 @@ const server = http.createServer(async (req, res) => {
       if (!user) {
         return sendJson(res, 401, {
           error: 'Please sign in.'
+        });
+      }
+
+      if ((user.country_code || 'NG') !== 'NG') {
+        const currency = user.currency;
+        await pool.query(
+          'INSERT INTO wallet_accounts (user_id, currency) VALUES ($1, $2) ON CONFLICT (user_id, currency) DO NOTHING',
+          [user.id, currency]
+        );
+        const entries = await pool.query(
+          `SELECT id, entry_type, amount_minor::text AS amount_minor,
+                  description, reference, created_at
+           FROM wallet_entries
+           WHERE user_id = $1 AND currency = $2
+           ORDER BY created_at DESC, id DESC
+           LIMIT 50`,
+          [user.id, currency]
+        );
+        return sendJson(res, 200, {
+          currency,
+          transactions: entries.rows.map(entry => ({
+            id: entry.id,
+            type: entry.entry_type,
+            amountMinor: entry.amount_minor,
+            amount: formatMinorAmount(entry.amount_minor, currency),
+            currency,
+            description: entry.description,
+            reference: entry.reference,
+            createdAt: entry.created_at
+          }))
         });
       }
 
@@ -1408,6 +1530,12 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 401, { error: 'Please sign in.' });
       }
 
+      if ((user.country_code || 'NG') !== 'NG') {
+        return sendJson(res, 409, {
+          error: 'Withdrawals are not yet enabled for your country because a verified local payout route is not available.'
+        });
+      }
+
       const body = await readJson(req);
       const amountText = String(body.amountNaira ?? '').trim();
       const bankName = typeof body.bankName === 'string'
@@ -1581,6 +1709,12 @@ const server = http.createServer(async (req, res) => {
 
       if (!user) {
         return sendJson(res, 401, { error: 'Please sign in.' });
+      }
+
+      if ((user.country_code || 'NG') !== 'NG') {
+        return sendJson(res, 409, {
+          error: 'Withdrawal services are not yet available for your country.'
+        });
       }
 
       const result = await pool.query(

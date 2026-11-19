@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#102B66">
+<meta name="description" content="KC EARN helps people discover verified online earning opportunities, track confirmed rewards and manage withdrawal requests. Offer availability depends on country and provider support.">
 <title>KC Earn — Earn more. Do more.</title>
 <style>
 *{box-sizing:border-box}
@@ -92,6 +93,58 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
 .message-actions{display:flex;gap:8px;flex-wrap:wrap}
 .message-actions button{flex:1;min-width:110px}
 .message-empty{color:#68758C;font-size:13px;padding:10px 2px}
+
+/* KC EARN visual polish and accessible interaction states */
+:root{color-scheme:light;--kc-navy:#102B66;--kc-blue:#1764DC;--kc-ink:#142B55;--kc-muted:#68758C;--kc-border:#E4EAF3;--kc-surface:#fff;--kc-canvas:#F4F7FC}
+html{min-height:100%;background:var(--kc-canvas);scroll-behavior:smooth}
+body{min-height:100vh;background:radial-gradient(ellipse at 50% -15%,#e2ecff 0,transparent 48%),var(--kc-canvas);color:var(--kc-ink);line-height:1.5}
+header{background:linear-gradient(145deg,#0D2456 0%,#123879 58%,#1764DC 130%);padding-bottom:62px}
+.logo{box-shadow:0 10px 28px rgba(3,18,52,.22);border:1px solid rgba(255,255,255,.65)}
+main{width:min(100% - 24px,560px);border:1px solid rgba(224,232,244,.9);box-shadow:0 18px 55px rgba(22,48,91,.08);margin-bottom:28px}
+.feature,.dashboard-card,.message-panel{border:1px solid var(--kc-border);box-shadow:0 3px 12px rgba(22,48,91,.035);transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
+.feature:hover,.dashboard-card[role="button"]:hover{transform:translateY(-2px);border-color:#c7d8f5;box-shadow:0 9px 22px rgba(22,48,91,.08)}
+button{box-shadow:0 5px 14px rgba(23,100,220,.14);transition:background .16s ease,transform .16s ease,box-shadow .16s ease}
+button:active{transform:translateY(1px);box-shadow:none}
+button:disabled{opacity:.58;cursor:not-allowed;box-shadow:none}
+button:focus-visible,a:focus-visible,[role="button"]:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid rgba(23,100,220,.32);outline-offset:3px}
+input,select,textarea{transition:border-color .16s ease,box-shadow .16s ease}
+input:focus,select:focus,textarea:focus{border-color:var(--kc-blue);box-shadow:0 0 0 3px rgba(23,100,220,.09)}
+.dashboard-card[role="button"]{cursor:pointer}
+.wallet-card{background:linear-gradient(135deg,#eaf1ff 0%,#f5f8ff 100%);border-color:#d8e5fb}
+.notice{border:1px solid #d9e6fb;background:#edf4ff}
+.message-bubble{border:1px solid #e5ebf4}
+.message-bubble.mine{border-color:#d6e4fb}
+.dashboard-heading{color:#18335F}
+@media(min-width:600px){main{width:min(100% - 40px,560px)}}
+@media(max-width:380px){main{width:calc(100% - 16px);padding-left:16px;padding-right:16px}.dashboard-grid{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition:none!important;animation:none!important}}
+
+
+/* KC EARN dark navy interface */
+:root{color-scheme:dark;--kc-navy:#07152f;--kc-blue:#397bff;--kc-ink:#f2f6ff;--kc-muted:#b3c1d9;--kc-border:#263b60;--kc-surface:#102344;--kc-canvas:#07152f}
+html,body{background:#07152f!important;color:#f2f6ff!important}
+body{background:radial-gradient(ellipse at 50% -15%,#173b70 0,transparent 52%),#07152f!important}
+header{background:linear-gradient(145deg,#061329 0%,#0b2450 58%,#174a91 130%)!important}
+main{background:#0b1d39!important;border-color:#263b60!important;box-shadow:0 20px 60px rgba(0,0,0,.28)!important}
+h1,.dashboard-heading,.dashboard-card h2,.feature strong,.message-panel h2{color:#f2f6ff!important}
+.description,.dashboard-card p,.feature small,.dashboard-card small,.message-empty{color:#b3c1d9!important}
+.feature,.dashboard-card,.message-panel{background:#102344!important;border-color:#263b60!important;box-shadow:0 5px 18px rgba(0,0,0,.18)!important}
+.wallet-card{background:linear-gradient(135deg,#123466,#102344)!important;border-color:#31578e!important}
+button{background:#2868df!important;color:#fff!important}
+button:hover{background:#397bff!important}
+button.secondary,.secondary{background:transparent!important;color:#9fc0ff!important;box-shadow:none!important}
+input,select,textarea,#messageComposer{background:#0a1931!important;color:#f2f6ff!important;border-color:#30496f!important}
+input::placeholder,textarea::placeholder{color:#8fa3c2!important}
+input:focus,select:focus,textarea:focus{border-color:#6da0ff!important;box-shadow:0 0 0 3px rgba(73,132,255,.18)!important}
+.notice{background:#142f55!important;color:#dbe8ff!important;border-color:#31578e!important}
+.message-item{background:#0c1d38!important;color:#f2f6ff!important;border-color:#263b60!important}
+.message-bubble{background:#142b4c!important;color:#f2f6ff!important;border-color:#30496f!important}
+.message-bubble.mine{background:#183d70!important;border-color:#3869a9!important}
+.back{color:#a9c4f5!important}
+footer{color:#8298bb!important}
+.dashboard-grid .dashboard-card{background:#102344!important}
+.logo{background:#dce9ff!important;color:#174a91!important;border-color:#83a9e8!important}
+
 </style>
 </head>
 <body>
@@ -134,6 +187,10 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
     <p class="description">Join KC Earn and explore earning opportunities.</p>
     <form id="registerForm" onsubmit="registerAccount(event)">
       <input type="text" name="fullName" placeholder="Full name" required maxlength="100">
+      <select name="countryCode" required aria-label="Country of residence">
+        <option value="" selected disabled>Select your African country</option>
+        <option value="DZ">Algeria</option><option value="AO">Angola</option><option value="BJ">Benin</option><option value="BW">Botswana</option><option value="BF">Burkina Faso</option><option value="BI">Burundi</option><option value="CV">Cabo Verde</option><option value="CM">Cameroon</option><option value="CF">Central African Republic</option><option value="TD">Chad</option><option value="KM">Comoros</option><option value="CG">Republic of the Congo</option><option value="CD">Democratic Republic of the Congo</option><option value="CI">Côte d’Ivoire</option><option value="DJ">Djibouti</option><option value="EG">Egypt</option><option value="GQ">Equatorial Guinea</option><option value="ER">Eritrea</option><option value="SZ">Eswatini</option><option value="ET">Ethiopia</option><option value="GA">Gabon</option><option value="GM">Gambia</option><option value="GH">Ghana</option><option value="GN">Guinea</option><option value="GW">Guinea-Bissau</option><option value="KE">Kenya</option><option value="LS">Lesotho</option><option value="LR">Liberia</option><option value="LY">Libya</option><option value="MG">Madagascar</option><option value="MW">Malawi</option><option value="ML">Mali</option><option value="MR">Mauritania</option><option value="MU">Mauritius</option><option value="MA">Morocco</option><option value="MZ">Mozambique</option><option value="NA">Namibia</option><option value="NE">Niger</option><option value="NG">Nigeria</option><option value="RW">Rwanda</option><option value="ST">São Tomé and Príncipe</option><option value="SN">Senegal</option><option value="SC">Seychelles</option><option value="SL">Sierra Leone</option><option value="SO">Somalia</option><option value="ZA">South Africa</option><option value="SS">South Sudan</option><option value="SD">Sudan</option><option value="TZ">Tanzania</option><option value="TG">Togo</option><option value="TN">Tunisia</option><option value="UG">Uganda</option><option value="ZM">Zambia</option><option value="ZW">Zimbabwe</option>
+      </select>
       <input type="email" name="email" placeholder="Email address" required maxlength="255">
       <input type="password" name="password" placeholder="Password" required minlength="8" maxlength="72">
       <button type="submit">Create Account</button>
@@ -198,7 +255,7 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openOfferzyWall();}">
       <span class="emoji">🎯</span>
       <strong>Online Offers</strong>
-      <small>Browse available offers and earn rewards</small>
+      <small id="offerzyAvailabilityText">Browse available offers and earn rewards</small>
     </div>
     <div class="dashboard-card">
       <span class="emoji">👥</span>
@@ -210,7 +267,7 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
       <strong>Transactions</strong>
       <small>View transaction history</small>
     </div>
-    <div class="dashboard-card" onclick="openWithdrawals()" role="button" tabindex="0">
+    <div id="withdrawalsDashboardCard" class="dashboard-card" onclick="openWithdrawals()" role="button" tabindex="0">
       <span class="emoji">💸</span>
       <strong>Withdrawals</strong>
       <small>View withdrawal requests</small>
@@ -296,12 +353,17 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
   <h1>Withdrawal History</h1>
   <p class="description">View the status of your withdrawal requests.</p>
 
-  <div class="dashboard-card">
+  <div id="nonNigeriaWithdrawalNotice" class="dashboard-card" hidden>
+    <h2>Local withdrawals are not available yet</h2>
+    <p>KC EARN has recorded your account in its local currency, but a verified payout provider and settlement route for your country have not been activated. No withdrawal request or fee will be taken. Your balance will remain in your account.</p>
+  </div>
+
+  <div id="nigeriaWithdrawalInfo" class="dashboard-card">
     <strong>Minimum withdrawal: ₦200</strong>
     <p>Withdrawals are subject to administrator review.</p>
   </div>
 
-  <div class="dashboard-card">
+  <div id="nigeriaWithdrawalFormCard" class="dashboard-card">
     <h2>Request a withdrawal</h2>
     <p>Minimum amount: ₦200. Enter your correct account details.</p>
 
@@ -370,7 +432,7 @@ footer{text-align:center;color:#9AA5B6;font-size:11px;font-weight:bold;letter-sp
     <div class="notice" id="withdrawalNotice"></div>
   </div>
 
-  <h2 class="dashboard-heading">Your withdrawal history</h2>
+  <h2 id="nigeriaWithdrawalHistoryHeading" class="dashboard-heading">Your withdrawal history</h2>
 
   <div id="withdrawalList" class="dashboard-card">
     Loading your withdrawal requests...
@@ -521,7 +583,8 @@ async function registerAccount(event) {
     const result = await sendAccountRequest('/api/register', {
       fullName: form.elements.fullName.value,
       email: form.elements.email.value,
-      password: form.elements.password.value
+      password: form.elements.password.value,
+      countryCode: form.elements.countryCode.value
     });
 
     form.elements.password.value = '';
@@ -561,8 +624,16 @@ async function loginAccount(event) {
 }
 
 
+let currentCountryCode = 'NG';
+
 function openDashboard(user) {
   messagingCurrentUserId = String(user.id);
+  currentCountryCode = String(user.countryCode || 'NG').toUpperCase();
+  const isNigeria = currentCountryCode === 'NG';
+  document.getElementById('withdrawalsDashboardCard').hidden = !isNigeria;
+  document.getElementById('offerzyAvailabilityText').textContent = isNigeria
+    ? 'Browse available offers and earn rewards'
+    : 'Not active in your country yet — verified local rewards are not available';
   document.getElementById('dashboardWelcome').textContent =
     'Welcome, ' + user.fullName + '!';
   document.getElementById('dashboardName').textContent = user.fullName;
@@ -573,6 +644,11 @@ function openDashboard(user) {
 }
 
 function openOfferzyWall() {
+  if (currentCountryCode !== 'NG') {
+    showNotice('dashboard', 'Offerzy rewards are not yet enabled for your country. We will not send you to offers that cannot currently be credited to your local-currency wallet.');
+    return;
+  }
+
   if (!messagingCurrentUserId ||
       !/^[1-9]\d*$/.test(messagingCurrentUserId)) {
     showNotice('dashboard', 'Please sign in again before opening offers.');
@@ -605,18 +681,22 @@ async function loadWallet() {
     }
 
     const result = await response.json();
-    const amount = Number(result.wallet.balanceNaira);
+    const wallet = result.wallet || {};
+    const currency = wallet.currency || 'NGN';
+    const amount = Number(wallet.balance ?? wallet.balanceNaira);
 
     if (!Number.isFinite(amount)) {
       throw new Error('Invalid wallet balance.');
     }
 
-    balance.textContent = new Intl.NumberFormat('en-NG', {
+    balance.textContent = new Intl.NumberFormat('en', {
       style: 'currency',
-      currency: 'NGN'
+      currency
     }).format(amount);
 
-    status.textContent = 'Your available wallet balance.';
+    status.textContent = currency === 'NGN'
+      ? 'Your available wallet balance.'
+      : 'Your wallet is displayed in ' + currency + '. Local earning and withdrawals are not enabled yet.';
   } catch (error) {
     status.textContent = 'Unable to load balance. Please refresh.';
     console.error('Wallet error:', error);
@@ -658,7 +738,8 @@ async function loadTransactions() {
 
     result.transactions.forEach(transaction => {
       const credit = transaction.type === 'credit';
-      const amount = Number(transaction.amountNaira);
+      const amount = Number(transaction.amount ?? transaction.amountNaira);
+      const currency = transaction.currency || result.currency || 'NGN';
 
       const card = document.createElement('div');
       card.className = 'dashboard-card';
@@ -669,9 +750,9 @@ async function loadTransactions() {
 
       const value = document.createElement('h2');
       value.textContent = (credit ? '+' : '−') +
-        new Intl.NumberFormat('en-NG', {
+        new Intl.NumberFormat('en', {
           style: 'currency',
-          currency: 'NGN'
+          currency
         }).format(amount);
 
       const date = document.createElement('small');
@@ -731,7 +812,13 @@ async function submitWithdrawal(event) {
 
 async function openWithdrawals() {
   showPage('withdrawals');
-  await loadWithdrawals();
+  const isNigeria = currentCountryCode === 'NG';
+  document.getElementById('nonNigeriaWithdrawalNotice').hidden = isNigeria;
+  document.getElementById('nigeriaWithdrawalInfo').hidden = !isNigeria;
+  document.getElementById('nigeriaWithdrawalFormCard').hidden = !isNigeria;
+  document.getElementById('withdrawalList').hidden = !isNigeria;
+  document.getElementById('nigeriaWithdrawalHistoryHeading').hidden = !isNigeria;
+  if (isNigeria) await loadWithdrawals();
 }
 
 async function loadWithdrawals() {

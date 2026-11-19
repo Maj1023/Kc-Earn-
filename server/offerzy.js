@@ -8,8 +8,7 @@ const REQUIRED_FIELDS = [
   'reward',
   'payout',
   'transaction_id',
-  'offer_id',
-  'signature'
+  'offer_id'
 ];
 
 const REWARD_PATTERN = /^-?(?:0|[1-9]\d{0,17})(?:\.\d{1,8})?$/;
@@ -20,15 +19,39 @@ function isZeroAmount(value) {
   return /^-?0(?:\.0+)?$/.test(value);
 }
 
-function verifyOfferzySignature(data, privateKey) {
+function verifyOfferzySignature(data, privateKey, rawQuery) {
   if (!privateKey || typeof privateKey !== 'string') return false;
-  if (!/^[a-f0-9]{32}$/i.test(data.signature || '')) return false;
 
+  // During Offerzy's signature migration, authenticate signature_v2 over the
+  // exact raw query bytes preceding the final &signature_v2= parameter.
+  if (data.signature_v2 !== undefined) {
+    if (typeof rawQuery !== 'string' ||
+        !/^[a-f0-9]{64}$/i.test(data.signature_v2)) return false;
+
+    const marker = '&signature_v2=';
+    const markerIndex = rawQuery.lastIndexOf(marker);
+    if (markerIndex <= 0 ||
+        rawQuery.indexOf('signature_v2=') !== markerIndex + 1 ||
+        !/^signature_v2=[a-f0-9]{64}$/i.test(rawQuery.slice(markerIndex + 1))) {
+      return false;
+    }
+
+    const expected = crypto
+      .createHmac('sha256', privateKey)
+      .update(rawQuery.slice(0, markerIndex), 'utf8')
+      .digest();
+    const supplied = Buffer.from(data.signature_v2, 'hex');
+
+    return supplied.length === expected.length &&
+      crypto.timingSafeEqual(expected, supplied);
+  }
+
+  // Legacy MD5 remains available only when signature_v2 is absent.
+  if (!/^[a-f0-9]{32}$/i.test(data.signature || '')) return false;
   const expected = crypto
     .createHash('md5')
     .update(data.user_id + data.reward + data.offer_id + privateKey, 'utf8')
     .digest();
-
   const supplied = Buffer.from(data.signature, 'hex');
 
   return supplied.length === expected.length &&
@@ -48,6 +71,13 @@ function parseOfferzyCallback(params) {
   for (const field of REQUIRED_FIELDS) {
     if (typeof values[field] !== 'string' || values[field].length === 0) {
       return { error: 'Missing required callback parameter: ' + field };
+    }
+  }
+
+  if (typeof values.signature !== 'string' || values.signature.length === 0) {
+    if (typeof values.signature_v2 !== 'string' ||
+        values.signature_v2.length === 0) {
+      return { error: 'Missing required callback signature.' };
     }
   }
 
@@ -109,19 +139,20 @@ function parseOfferzyCallback(params) {
       sub3: values.sub3 || null,
       sub4: values.sub4 || null,
       sub5: values.sub5 || null,
-      signature: values.signature
+      signature: values.signature,
+      signature_v2: values.signature_v2
     }
   };
 }
 
 
-function calculateOfferzyRewardKobo(payoutUsd, exchangeRate, rewardPercent) {
-  const payoutPattern = /^(?:0|[1-9]\d{0,11})(?:\.\d{1,8})?$/;
+function calculateOfferzyRewardKobo(rewardCoins, exchangeRate, rewardPercent) {
+  const rewardPattern = /^(?:0|[1-9]\d{0,17})(?:\.\d{1,8})?$/;
   const ratePattern = /^(?:0|[1-9]\d{0,6})(?:\.\d{1,4})?$/;
 
-  if (typeof payoutUsd !== 'string' || !payoutPattern.test(payoutUsd) ||
-      /^0(?:\.0+)?$/.test(payoutUsd)) {
-    throw new Error('Invalid positive USD payout.');
+  if (typeof rewardCoins !== 'string' || !rewardPattern.test(rewardCoins) ||
+      /^0(?:\.0+)?$/.test(rewardCoins)) {
+    throw new Error('Invalid positive Offerzy Coin reward.');
   }
 
   if (typeof exchangeRate !== 'string' ||
@@ -140,15 +171,17 @@ function calculateOfferzyRewardKobo(payoutUsd, exchangeRate, rewardPercent) {
     return BigInt(whole + fraction.padEnd(decimalPlaces, '0'));
   }
 
-  const payout = toScaledInteger(payoutUsd, 8);
+  const coins = toScaledInteger(rewardCoins, 8);
   const rate = toScaledInteger(exchangeRate, 4);
 
   if (rate > 1000000n * 10000n) {
     throw new Error('Exchange rate exceeds the allowed maximum.');
   }
 
-  const denominator = 1000000000000n;
-  const numerator = payout * rate * BigInt(rewardPercent);
+  // This placement defines 1,000 Offerzy Coins as USD 1.
+  // Convert signed Coins to NGN, apply the customer share, then to kobo.
+  const denominator = 1000000000000000n;
+  const numerator = coins * rate * BigInt(rewardPercent);
 
   // Round half up to the nearest whole kobo.
   const rewardKobo = (numerator + denominator / 2n) / denominator;
@@ -161,12 +194,20 @@ function calculateOfferzyRewardKobo(payoutUsd, exchangeRate, rewardPercent) {
 }
 
 
-async function handleOfferzyPostback({ params, pool, privateKey }) {
+async function handleOfferzyPostback({ rawQuery, params, pool, privateKey }) {
   if (!privateKey) {
     return { status: 503, body: 'Offerzy callback is not configured.' };
   }
 
-  const parsed = parseOfferzyCallback(params);
+  let callbackParams = params;
+  if (typeof rawQuery === 'string') {
+    callbackParams = new URLSearchParams(rawQuery);
+  }
+  if (!(callbackParams instanceof URLSearchParams)) {
+    return { status: 400, body: 'Invalid callback query.' };
+  }
+
+  const parsed = parseOfferzyCallback(callbackParams);
 
   if (parsed.error) {
     return { status: 400, body: parsed.error };
@@ -174,7 +215,7 @@ async function handleOfferzyPostback({ params, pool, privateKey }) {
 
   const data = parsed.data;
 
-  if (!verifyOfferzySignature(data, privateKey)) {
+  if (!verifyOfferzySignature(data, privateKey, rawQuery)) {
     return { status: 403, body: 'Invalid Offerzy signature.' };
   }
 
@@ -418,6 +459,28 @@ async function handleOfferzyPostback({ params, pool, privateKey }) {
       return { status: 200, body: 'duplicate' };
     }
 
+    // Offerzy rewards are currently settled and accounted for in NGN only.
+    // Never credit a non-Nigerian account with a mislabeled NGN amount.
+    // Keep the callback retryable until that market has a verified local
+    // currency conversion and payout route. Reversals above remain processable.
+    const customerMarket = await client.query(
+      'SELECT country_code FROM users WHERE id = $1 FOR SHARE',
+      [data.user_id]
+    );
+
+    if (!customerMarket.rowCount) {
+      await client.query('ROLLBACK');
+      return { status: 400, body: 'Unknown KC Earn user.' };
+    }
+
+    if (customerMarket.rows[0].country_code !== 'NG') {
+      await client.query('ROLLBACK');
+      return {
+        status: 503,
+        body: 'Rewards are not yet enabled for this country; retry later.'
+      };
+    }
+
     // Lock settings so the rate and percentage cannot change mid-credit.
     const settingsResult = await client.query(
       `SELECT user_reward_percent,
@@ -447,7 +510,7 @@ async function handleOfferzyPostback({ params, pool, privateKey }) {
 
     const grossReward = BigInt(
       calculateOfferzyRewardKobo(
-        data.payout,
+        data.reward,
         exchangeRate,
         rewardPercent
       )
