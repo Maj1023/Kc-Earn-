@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const { insertRegisteredUser } = require('./account-registration');
 const { getAfricanCountry } = require('./african-countries');
+const { formatMinorAmount, getCurrencyMinorUnit } = require('./currency');
 const { handleOfferzyPostback } = require('./offerzy');
 const {
   ADMIN_ROLE_LOCK_SQL,
@@ -146,10 +147,49 @@ async function initializeDatabase() {
     ON wallet_transactions(user_id, created_at DESC)
   `);
 
+  // Currency-aware accounts are separate from the legacy NGN kobo wallet.
+  // Existing Nigerian balances remain in wallets and are never reinterpreted.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wallet_accounts (
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      currency CHAR(3) NOT NULL,
+      balance_minor BIGINT NOT NULL DEFAULT 0 CHECK (balance_minor >= 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, currency)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wallet_entries (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      currency CHAR(3) NOT NULL,
+      entry_type VARCHAR(10) NOT NULL CHECK (entry_type IN ('credit', 'debit')),
+      amount_minor BIGINT NOT NULL CHECK (amount_minor > 0),
+      description VARCHAR(255) NOT NULL,
+      reference VARCHAR(100) UNIQUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      FOREIGN KEY (user_id, currency)
+        REFERENCES wallet_accounts(user_id, currency) ON DELETE CASCADE
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS wallet_entries_user_currency_idx
+    ON wallet_entries(user_id, currency, created_at DESC)
+  `);
+
   await pool.query(`
     INSERT INTO wallets (user_id)
     SELECT id FROM users
     ON CONFLICT (user_id) DO NOTHING
+  `);
+
+  await pool.query(`
+    INSERT INTO wallet_accounts (user_id, currency)
+    SELECT id, currency FROM users
+    ON CONFLICT (user_id, currency) DO NOTHING
   `);
 
 
@@ -759,6 +799,10 @@ const server = http.createServer(async (req, res) => {
         'INSERT INTO wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
         [user.id]
       );
+      await pool.query(
+        'INSERT INTO wallet_accounts (user_id, currency) VALUES ($1, $2) ON CONFLICT (user_id, currency) DO NOTHING',
+        [user.id, user.currency]
+      );
 
       await createSession(user.id, res);
 
@@ -817,8 +861,24 @@ const server = http.createServer(async (req, res) => {
       }
 
       if ((user.country_code || 'NG') !== 'NG') {
-        return sendJson(res, 409, {
-          error: 'Your country is registered. Local-currency wallets and verified payout services are not yet available there.'
+        const currency = user.currency;
+        await pool.query(
+          'INSERT INTO wallet_accounts (user_id, currency) VALUES ($1, $2) ON CONFLICT (user_id, currency) DO NOTHING',
+          [user.id, currency]
+        );
+        const account = await pool.query(
+          'SELECT balance_minor::text AS balance_minor FROM wallet_accounts WHERE user_id = $1 AND currency = $2',
+          [user.id, currency]
+        );
+        const balanceMinor = account.rows[0].balance_minor;
+        return sendJson(res, 200, {
+          wallet: {
+            balanceMinor,
+            balance: formatMinorAmount(balanceMinor, currency),
+            currency,
+            minorUnit: getCurrencyMinorUnit(currency),
+            countryCode: user.country_code
+          }
         });
       }
 
@@ -856,8 +916,32 @@ const server = http.createServer(async (req, res) => {
       }
 
       if ((user.country_code || 'NG') !== 'NG') {
-        return sendJson(res, 409, {
-          error: 'Local-currency transaction history is not yet available for your country.'
+        const currency = user.currency;
+        await pool.query(
+          'INSERT INTO wallet_accounts (user_id, currency) VALUES ($1, $2) ON CONFLICT (user_id, currency) DO NOTHING',
+          [user.id, currency]
+        );
+        const entries = await pool.query(
+          `SELECT id, entry_type, amount_minor::text AS amount_minor,
+                  description, reference, created_at
+           FROM wallet_entries
+           WHERE user_id = $1 AND currency = $2
+           ORDER BY created_at DESC, id DESC
+           LIMIT 50`,
+          [user.id, currency]
+        );
+        return sendJson(res, 200, {
+          currency,
+          transactions: entries.rows.map(entry => ({
+            id: entry.id,
+            type: entry.entry_type,
+            amountMinor: entry.amount_minor,
+            amount: formatMinorAmount(entry.amount_minor, currency),
+            currency,
+            description: entry.description,
+            reference: entry.reference,
+            createdAt: entry.created_at
+          }))
         });
       }
 
