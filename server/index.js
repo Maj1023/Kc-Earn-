@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const { insertRegisteredUser } = require('./account-registration');
-const { getAfricanCountry } = require('./african-countries');
+const { AFRICAN_COUNTRIES, getAfricanCountry } = require('./african-countries');
 const { formatMinorAmount, getCurrencyMinorUnit } = require('./currency');
 const { handleOfferzyPostback } = require('./offerzy');
 const {
@@ -733,7 +733,6 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && pathname === '/api/countries') {
-      const { AFRICAN_COUNTRIES } = require('./african-countries');
       return sendJson(res, 200, {
         countries: AFRICAN_COUNTRIES.map(country => ({
           code: country.code,
