@@ -29,6 +29,7 @@ type User = {
   currency: string;
   isAdmin: boolean;
 };
+type Transaction = { id: number; type: string; amount: string; currency?: string; amountNaira?: string; description: string; reference?: string; createdAt: string };
 type Wallet = {
   balanceKobo?: string;
   balanceNaira?: string;
@@ -64,6 +65,8 @@ export default function App() {
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingCountries, setLoadingCountries] = useState(true);
 
@@ -86,8 +89,12 @@ export default function App() {
 
   const loadAccount = async (accountUser: User) => {
     setUser(accountUser);
-    const data = await apiRequest('/api/wallet');
-    setWallet(data.wallet);
+    const [walletData, transactionData] = await Promise.all([
+      apiRequest('/api/wallet'),
+      apiRequest('/api/wallet/transactions'),
+    ]);
+    setWallet(walletData.wallet);
+    setTransactions(Array.isArray(transactionData.transactions) ? transactionData.transactions : []);
     setScreen('dashboard');
   };
 
@@ -127,11 +134,18 @@ export default function App() {
   };
 
   const refreshWallet = async () => {
+    setLoadingTransactions(true);
     try {
-      const data = await apiRequest('/api/wallet');
-      setWallet(data.wallet);
+      const [walletData, transactionData] = await Promise.all([
+        apiRequest('/api/wallet'),
+        apiRequest('/api/wallet/transactions'),
+      ]);
+      setWallet(walletData.wallet);
+      setTransactions(Array.isArray(transactionData.transactions) ? transactionData.transactions : []);
     } catch (error) {
-      Alert.alert('Wallet unavailable', error instanceof Error ? error.message : 'Please try again.');
+      Alert.alert('Account unavailable', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setLoadingTransactions(false);
     }
   };
 
@@ -143,6 +157,7 @@ export default function App() {
     } finally {
       setUser(null);
       setWallet(null);
+      setTransactions([]);
       setScreen('welcome');
     }
   };
@@ -213,6 +228,31 @@ export default function App() {
                   <Text style={styles.walletAmount}>{wallet ? (wallet.currency === 'NGN' ? `₦${wallet.balanceNaira || '0.00'}` : `${wallet.currency} ${wallet.balance || '0'}`) : 'Loading…'}</Text>
                   <Text style={styles.walletCaption}>Currency: {wallet?.currency || user.currency}</Text>
                   <TouchableOpacity onPress={refreshWallet} style={styles.refreshButton}><Text style={styles.refreshText}>Refresh balance</Text></TouchableOpacity>
+                </View>
+                <View style={styles.transactionsCard}>
+                  <View style={styles.transactionsHeader}>
+                    <Text style={styles.noticeTitle}>Recent transactions</Text>
+                    <TouchableOpacity onPress={refreshWallet} disabled={loadingTransactions}>
+                      <Text style={styles.refreshText}>{loadingTransactions ? 'Refreshing…' : 'Refresh'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {transactions.length === 0 ? (
+                    <Text style={styles.emptyText}>No wallet transactions yet.</Text>
+                  ) : transactions.map(item => {
+                    const isCredit = item.type === 'credit';
+                    const amountText = item.currency === 'NGN' || item.amountNaira !== undefined
+                      ? `₦${item.amountNaira || item.amount}`
+                      : `${item.currency || wallet?.currency || user.currency} ${item.amount}`;
+                    return (
+                      <View key={String(item.id)} style={styles.transactionRow}>
+                        <View style={styles.transactionInfo}>
+                          <Text style={styles.transactionDescription}>{item.description || (isCredit ? 'Wallet credit' : 'Wallet debit')}</Text>
+                          <Text style={styles.transactionDate}>{new Date(item.createdAt).toLocaleString()}</Text>
+                        </View>
+                        <Text style={[styles.transactionAmount, isCredit ? styles.creditAmount : styles.debitAmount]}>{isCredit ? '+' : '−'}{amountText}</Text>
+                      </View>
+                    );
+                  })}
                 </View>
                 {user.countryCode === 'NG' ? (
                   <View style={styles.noticeCard}>
@@ -295,6 +335,15 @@ const styles = StyleSheet.create({
   refreshButton: { alignSelf: 'flex-start', paddingTop: 14 },
   refreshText: { color: '#1764DC', fontWeight: '700' },
   noticeCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 17, marginBottom: 18 },
+  transactionsCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 17, marginBottom: 18 },
+  transactionsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  transactionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 13, borderTopWidth: 1, borderTopColor: '#EEF1F6', gap: 12 },
+  transactionInfo: { flex: 1 },
+  transactionDescription: { color: '#18335F', fontSize: 13, fontWeight: '700' },
+  transactionDate: { color: '#8993A7', fontSize: 11, marginTop: 4 },
+  transactionAmount: { fontSize: 13, fontWeight: '800' },
+  creditAmount: { color: '#16834A' },
+  debitAmount: { color: '#B54747' },
   noticeTitle: { color: '#18335F', fontSize: 15, fontWeight: '800', marginBottom: 7 },
   noticeText: { color: '#68758C', fontSize: 13, lineHeight: 20 },
   modalSafe: { flex: 1, backgroundColor: '#F4F7FC', paddingTop: 20 },
