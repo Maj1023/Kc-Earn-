@@ -647,6 +647,19 @@ async function handleOfferzyPostback({ rawQuery, params, pool, privateKey }) {
 
     return { status: 200, body: 'ok' };
   } catch (error) {
+    console.error('Offerzy postback processing failed:', {
+      name: error && error.name,
+      message: error && error.message,
+      code: error && error.code,
+      severity: error && error.severity,
+      schema: error && error.schema,
+      table: error && error.table,
+      column: error && error.column,
+      constraint: error && error.constraint,
+      routine: error && error.routine,
+      stack: error && error.stack
+    });
+
     if (client) {
       await client.query('ROLLBACK').catch(() => {});
     }
