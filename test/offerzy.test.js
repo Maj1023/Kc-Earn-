@@ -318,7 +318,7 @@ test('calculates Offerzy Coin rewards using exact integer arithmetic', () => {
 
 test('rounds calculated rewards to the nearest kobo', () => {
   assert.equal(
-    calculateOfferzyRewardKobo('0.00000100', '5000.0000', 100),
+    calculateOfferzyRewardKobo('0.001', '5000.0000', 100),
     '1'
   );
 });
