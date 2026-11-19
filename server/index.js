@@ -4,7 +4,17 @@ const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
+const { insertRegisteredUser } = require('./account-registration');
 const { handleOfferzyPostback } = require('./offerzy');
+const {
+  ADMIN_ROLE_LOCK_SQL,
+  createSessionRecord,
+  getAdminAuthorizationError,
+  isSessionActive,
+  isValidSessionToken,
+  validateRoleChange,
+  verifyCurrentPassword
+} = require('./admin-security');
 
 const PORT = process.env.PORT || 3000;
 const SESSION_DAYS = 7;
@@ -36,7 +46,8 @@ async function initializeDatabase() {
     )
   `);
 
-  // ADMIN_EMAIL role migration
+  // Administrator roles are provisioned explicitly. ADMIN_EMAIL is not used
+  // for automatic role promotion during ordinary startup.
   await pool.query(`
     ALTER TABLE users
     ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'user'
@@ -56,32 +67,33 @@ async function initializeDatabase() {
     END $$;
   `);
 
-  const adminEmail = String(process.env.ADMIN_EMAIL || '')
-    .trim()
-    .toLowerCase();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_role_audit (
+      id BIGSERIAL PRIMARY KEY,
+      target_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      acting_admin_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      old_role VARCHAR(20) NOT NULL,
+      new_role VARCHAR(20) NOT NULL,
+      reason VARCHAR(255),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (old_role IN ('user', 'admin')),
+      CHECK (new_role IN ('user', 'admin'))
+    )
+  `);
 
-  if (adminEmail) {
-    await pool.query(
-      `UPDATE users
-       SET role = 'admin'
-       WHERE lower(email) = $1
-         AND role <> 'admin'`,
-      [adminEmail]
-    );
-
-    const adminCheck = await pool.query(
-      'SELECT id FROM users WHERE lower(email) = $1',
-      [adminEmail]
-    );
-
-    console.log(
-      adminCheck.rowCount === 1
-        ? 'Configured administrator account found.'
-        : 'WARNING: ADMIN_EMAIL does not match an existing account yet.'
-    );
-  } else {
-    console.log('ADMIN_EMAIL is not configured.');
-  }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_provisioning_audit (
+      id BIGSERIAL PRIMARY KEY,
+      target_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      operator_label VARCHAR(100) NOT NULL,
+      old_role VARCHAR(20) NOT NULL,
+      new_role VARCHAR(20) NOT NULL,
+      reason VARCHAR(255) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (old_role = 'user'),
+      CHECK (new_role = 'admin')
+    )
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -534,11 +546,7 @@ async function createSession(userId, res) {
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + SESSION_MS);
 
-  await pool.query(
-    `INSERT INTO sessions (token_hash, user_id, expires_at)
-     VALUES ($1, $2, $3)`,
-    [tokenHash, userId, expiresAt]
-  );
+  await createSessionRecord(pool, { userId, tokenHash, expiresAt });
 
   res.setHeader('Set-Cookie',
     `kc_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86400}`
@@ -548,12 +556,13 @@ async function createSession(userId, res) {
 async function getLoggedInUser(req) {
   const token = getCookie(req, 'kc_session');
 
-  if (!token || !/^[a-f0-9]{64}$/.test(token)) {
+  if (!isValidSessionToken(token)) {
     return null;
   }
 
   const result = await pool.query(
-    `SELECT users.id, users.full_name, users.email, users.created_at, users.role
+    `SELECT users.id, users.full_name, users.email, users.created_at, users.role,
+            sessions.expires_at AS session_expires_at
      FROM sessions
      JOIN users ON users.id = sessions.user_id
      WHERE sessions.token_hash = $1
@@ -561,19 +570,18 @@ async function getLoggedInUser(req) {
     [hashToken(token)]
   );
 
-  return result.rows[0] || null;
+  const user = result.rows[0];
+  return user && isSessionActive(user.session_expires_at) ? user : null;
 }
 
 async function requireAdmin(req, res) {
   const user = await getLoggedInUser(req);
+  const authorizationError = getAdminAuthorizationError(user);
 
-  if (!user) {
-    sendJson(res, 401, { error: 'Please log in first.' });
-    return null;
-  }
-
-  if (user.role !== 'admin') {
-    sendJson(res, 403, { error: 'Administrator access required.' });
+  if (authorizationError) {
+    sendJson(res, authorizationError.status, {
+      error: authorizationError.error
+    });
     return null;
   }
 
@@ -632,8 +640,9 @@ const server = http.createServer(async (req, res) => {
     // Signed server-to-server Offerzy conversion and reversal callbacks.
     if (req.method === 'GET' &&
         pathname === '/api/offerzy/postback') {
+      const queryIndex = req.url.indexOf('?');
       const callback = await handleOfferzyPostback({
-        params: new URL(req.url, 'http://localhost').searchParams,
+        rawQuery: queryIndex === -1 ? '' : req.url.slice(queryIndex + 1),
         pool,
         privateKey: process.env.OFFERZY_PRIVATE_KEY
       });
@@ -709,12 +718,12 @@ const server = http.createServer(async (req, res) => {
       let result;
 
       try {
-        result = await pool.query(
-          `INSERT INTO users (full_name, email, password_hash)
-           VALUES ($1, $2, $3)
-           RETURNING id, full_name, email, created_at`,
-          [fullName, email, passwordHash]
-        );
+        result = await insertRegisteredUser(pool, {
+          fullName,
+          email,
+          passwordHash,
+          role: body.role
+        });
       } catch (error) {
         if (error.code === '23505') {
           return sendJson(res, 409, {
@@ -756,7 +765,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const result = await pool.query(
-        `SELECT id, full_name, email, password_hash, created_at
+        `SELECT id, full_name, email, password_hash, role, created_at
          FROM users WHERE email = $1`,
         [email]
       );
@@ -844,7 +853,178 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    const adminRoleChange = pathname.match(
+      /^\/api\/admin\/users\/([1-9]\d{0,17})\/role$/
+    );
 
+    if (req.method === 'POST' && adminRoleChange) {
+      const admin = await requireAdmin(req, res);
+
+      if (!admin) {
+        return;
+      }
+
+      const body = await readJson(req);
+      const newRole = typeof body?.role === 'string'
+        ? body.role.trim().toLowerCase()
+        : '';
+      const password = typeof body?.password === 'string'
+        ? body.password
+        : '';
+      const reason = typeof body?.reason === 'string'
+        ? body.reason.trim()
+        : '';
+
+      if (!['user', 'admin'].includes(newRole)) {
+        return sendJson(res, 400, {
+          error: 'Role must be user or admin.'
+        });
+      }
+
+      if (!password) {
+        return sendJson(res, 401, {
+          error: 'Current administrator password required.'
+        });
+      }
+
+      if (Buffer.byteLength(password, 'utf8') > 72) {
+        return sendJson(res, 400, {
+          error: 'Current administrator password exceeds 72 bytes.'
+        });
+      }
+
+      if (reason.length > 255) {
+        return sendJson(res, 400, {
+          error: 'Reason must not exceed 255 characters.'
+        });
+      }
+
+      const targetId = adminRoleChange[1];
+      const client = await pool.connect();
+      let committed = false;
+
+      try {
+        await client.query('BEGIN');
+        await client.query(ADMIN_ROLE_LOCK_SQL);
+
+        const actorResult = await client.query(
+          'SELECT password_hash, role FROM users WHERE id = $1 FOR UPDATE',
+          [admin.id]
+        );
+        if (actorResult.rowCount !== 1 ||
+            actorResult.rows[0].role !== 'admin') {
+          await client.query('ROLLBACK');
+          return sendJson(res, 403, {
+            error: 'Administrator access required.'
+          });
+        }
+
+        const sessionToken = getCookie(req, 'kc_session');
+        const actorSessionResult = isValidSessionToken(sessionToken)
+          ? await client.query(
+            `SELECT token_hash
+             FROM sessions
+             WHERE token_hash = $1
+               AND user_id = $2
+               AND expires_at > NOW()
+             FOR UPDATE`,
+            [hashToken(sessionToken), admin.id]
+          )
+          : { rowCount: 0 };
+
+        if (actorSessionResult.rowCount !== 1) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 401, {
+            error: 'Please log in first.'
+          });
+        }
+
+        if (!(await verifyCurrentPassword(
+          actorResult.rows[0].password_hash,
+          password
+        ))) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 401, {
+            error: 'Current administrator password is incorrect.'
+          });
+        }
+
+        const targetResult = await client.query(
+          'SELECT role FROM users WHERE id = $1 FOR UPDATE',
+          [targetId]
+        );
+        if (targetResult.rowCount !== 1) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 404, {
+            error: 'Target user not found.'
+          });
+        }
+
+        const adminCountResult = await client.query(
+          "SELECT COUNT(*)::text AS admin_count FROM users WHERE role = 'admin'"
+        );
+
+        const oldRole = targetResult.rows[0].role;
+        const roleError = validateRoleChange(
+          admin.id,
+          actorResult.rows[0].role,
+          targetId,
+          oldRole,
+          newRole,
+          adminCountResult.rows[0].admin_count
+        );
+        if (roleError) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 409, {
+            error: roleError
+          });
+        }
+
+        await client.query(
+          'UPDATE users SET role = $1 WHERE id = $2',
+          [newRole, targetId]
+        );
+
+        await client.query(
+          'DELETE FROM sessions WHERE user_id = $1',
+          [targetId]
+        );
+
+        await client.query(
+          `INSERT INTO admin_role_audit
+           (target_user_id, acting_admin_id, old_role, new_role, reason)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            targetId,
+            admin.id,
+            oldRole,
+            newRole,
+            reason || null
+          ]
+        );
+
+        await client.query('COMMIT');
+        committed = true;
+        return sendJson(res, 200, {
+          message: 'Administrator role updated.',
+          targetUserId: targetId,
+          role: newRole
+        });
+      } catch (error) {
+        if (!committed) {
+          try {
+            await client.query('ROLLBACK');
+          } catch {
+            throw new Error(
+              'Administrator role change failed and rollback could not be confirmed.'
+            );
+          }
+        }
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
 
     if (req.method === 'GET' && pathname === '/api/admin/reward-settings') {
       const admin = await requireAdmin(req, res);
@@ -1982,7 +2162,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/logout') {
       const token = getCookie(req, 'kc_session');
 
-      if (token && /^[a-f0-9]{64}$/.test(token)) {
+      if (isValidSessionToken(token)) {
         await pool.query(
           'DELETE FROM sessions WHERE token_hash = $1',
           [hashToken(token)]
