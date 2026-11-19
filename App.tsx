@@ -27,7 +27,7 @@ type Transaction = {
 };
 type Wallet = { balanceNaira: string; currency: string };
 
-const API_URL = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/+$/, '');
+const API_URL = (process.env.EXPO_PUBLIC_API_URL || 'https://kc-earn.onrender.com').replace(/\/+$/, '');
 const TOKEN_KEY = 'kc_earn_session_token';
 
 class ApiError extends Error {
