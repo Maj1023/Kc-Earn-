@@ -829,7 +829,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const result = await pool.query(
-        `SELECT id, full_name, email, password_hash, role, created_at
+        `SELECT id, full_name, email, password_hash, role, country_code, currency, created_at
          FROM users WHERE email = $1`,
         [email]
       );
