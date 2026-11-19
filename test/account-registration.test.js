@@ -23,9 +23,12 @@ test('ordinary registration always writes the user role', async () => {
 
   assert.match(recordedQuery.sql, /VALUES \(\$1, \$2, \$3, 'user'\)/);
   assert.match(recordedQuery.sql, /RETURNING id, full_name, email, role, created_at/);
+  assert.match(recordedQuery.sql, /country_code, currency, role/);
   assert.deepEqual(recordedQuery.values, [
     'Test User',
     'user@example.test',
-    'test-hash'
+    'test-hash',
+    'NG',
+    'NGN'
   ]);
 });
