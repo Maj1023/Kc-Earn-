@@ -35,9 +35,42 @@ if (!testDatabaseUrl) {
   const pool = new Pool({
     connectionString: testDatabaseUrl,
     max: 5,
-    application_name: applicationName,
-    options: `-c search_path=${schema}`
+    application_name: applicationName
   });
+
+  pool.on('connect', (client) => {
+    client.searchPathReady = client.query(
+      `SET search_path TO "${schema}"`
+    );
+  });
+
+  const originalConnect = pool.connect.bind(pool);
+  pool.connect = (...args) => {
+    if (typeof args[0] === 'function') {
+      const callback = args[0];
+      return originalConnect((error, client, release) => {
+        if (error) return callback(error);
+        Promise.resolve(client.searchPathReady).then(
+          () => callback(null, client, release),
+          setupError => {
+            release(setupError);
+            callback(setupError);
+          }
+        );
+      });
+    }
+
+    return originalConnect().then(async client => {
+      try {
+        await client.searchPathReady;
+        return client;
+      } catch (error) {
+        client.release(error);
+        throw error;
+      }
+    });
+  };
+
   let schemaCreated = false;
 
   test.before(async () => {
@@ -102,16 +135,18 @@ if (!testDatabaseUrl) {
 
   async function waitForActivity(matches, description) {
     const deadline = Date.now() + 5000;
+    let observedRows = [];
 
     while (Date.now() < deadline) {
       const result = await pool.query(
-        `SELECT query, wait_event_type
+        `SELECT pid, application_name, state, query, wait_event_type
          FROM pg_stat_activity
          WHERE application_name = $1
-           AND pid <> pg_backend_pid()
-           AND state = 'active'`,
+           AND pid <> pg_backend_pid()`,
         [applicationName]
       );
+
+      observedRows = result.rows;
 
       if (result.rows.some(matches)) {
         return;
@@ -120,7 +155,9 @@ if (!testDatabaseUrl) {
       await new Promise(resolve => setTimeout(resolve, 10));
     }
 
-    assert.fail(`Timed out waiting for ${description}.`);
+    assert.fail(
+      `Timed out waiting for ${description}. Observed activity: ${JSON.stringify(observedRows)}`
+    );
   }
 
   test('promotion atomically revokes existing sessions and records its audit', async () => {

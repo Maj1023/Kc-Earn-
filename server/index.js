@@ -5,6 +5,10 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const { insertRegisteredUser } = require('./account-registration');
+const {
+  generateReferralCode,
+  normalizeReferralCode
+} = require('./referrals');
 const { handleOfferzyPostback } = require('./offerzy');
 const {
   ADMIN_ROLE_LOCK_SQL,
@@ -36,6 +40,7 @@ pool.on('error', error => {
 });
 
 async function initializeDatabase() {
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id BIGSERIAL PRIMARY KEY,
@@ -45,6 +50,74 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+
+// Referral codes are unique; existing users receive codes without
+  // receiving retroactive referral credits.
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS referral_code CHAR(16)
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS users_referral_code_unique_idx
+    ON users(referral_code)
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS referrals (
+      id BIGSERIAL PRIMARY KEY,
+      referrer_user_id BIGINT NOT NULL
+        REFERENCES users(id) ON DELETE RESTRICT,
+      referred_user_id BIGINT NOT NULL UNIQUE
+        REFERENCES users(id) ON DELETE RESTRICT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      seen_at TIMESTAMPTZ,
+      CHECK (referrer_user_id <> referred_user_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS referrals_referrer_created_idx
+    ON referrals(referrer_user_id, created_at DESC)
+  `);
+
+  const usersMissingReferralCodes = await pool.query(
+    'SELECT id FROM users WHERE referral_code IS NULL'
+  );
+
+  for (const account of usersMissingReferralCodes.rows) {
+    let assigned = false;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const referralCode = crypto.randomBytes(8)
+        .toString('hex')
+        .toUpperCase();
+
+      const result = await pool.query(
+        `UPDATE users
+         SET referral_code = $1
+         WHERE id = $2 AND referral_code IS NULL`,
+        [referralCode, account.id]
+      );
+
+      if (result.rowCount === 1) {
+        assigned = true;
+        break;
+      }
+    }
+
+    if (!assigned) {
+      const check = await pool.query(
+        'SELECT referral_code FROM users WHERE id = $1',
+        [account.id]
+      );
+      if (!check.rows[0]?.referral_code) {
+        throw new Error('Could not assign a referral code.');
+      }
+    }
+  }
+
+
 
   // Administrator roles are provisioned explicitly. ADMIN_EMAIL is not used
   // for automatic role promotion during ordinary startup.
@@ -714,34 +787,158 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      const passwordHash = await bcrypt.hash(password, 12);
+      const suppliedReferralCode = typeof body.referralCode === 'string'
+        ? body.referralCode.trim()
+        : '';
 
-      let result;
+      let referralCode = null;
+
+      if (suppliedReferralCode) {
+        referralCode = normalizeReferralCode(suppliedReferralCode);
+        if (!referralCode) {
+          return sendJson(res, 400, {
+            error: 'The referral link is invalid.'
+          });
+        }
+      }
+
+      const passwordHash = await bcrypt.hash(password, 12);
+      const client = await pool.connect();
+      let committed = false;
+      let user;
 
       try {
-        result = await insertRegisteredUser(pool, {
+        await client.query('BEGIN');
+
+        let referrer = null;
+
+        if (referralCode) {
+          const referrerResult = await client.query(
+            `SELECT id
+             FROM users
+             WHERE referral_code = $1
+             FOR KEY SHARE`,
+            [referralCode]
+          );
+
+          if (referrerResult.rowCount !== 1) {
+            const error = new Error('This referral code does not exist.');
+            error.code = 'INVALID_REFERRAL_CODE';
+            throw error;
+          }
+
+          referrer = referrerResult.rows[0];
+        }
+
+        const result = await insertRegisteredUser(client, {
           fullName,
           email,
-          passwordHash,
-          role: body.role
+          passwordHash
         });
+
+        user = result.rows[0];
+
+        let assignedCode = false;
+
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const newCode = generateReferralCode();
+
+          await client.query('SAVEPOINT referral_code_assignment');
+
+          try {
+            const update = await client.query(
+              `UPDATE users
+               SET referral_code = $1
+               WHERE id = $2`,
+              [newCode, user.id]
+            );
+
+            if (update.rowCount !== 1) {
+              throw new Error('Could not assign a referral code.');
+            }
+
+            await client.query(
+              'RELEASE SAVEPOINT referral_code_assignment'
+            );
+
+            assignedCode = true;
+            break;
+          } catch (error) {
+            await client.query(
+              'ROLLBACK TO SAVEPOINT referral_code_assignment'
+            );
+            await client.query(
+              'RELEASE SAVEPOINT referral_code_assignment'
+            );
+
+            if (error.code !== '23505' || attempt === 4) {
+              throw error;
+            }
+          }
+        }
+
+        if (!assignedCode) {
+          throw new Error('Could not assign a referral code.');
+        }
+
+        await client.query(
+          `INSERT INTO wallets (user_id)
+           VALUES ($1)
+           ON CONFLICT (user_id) DO NOTHING`,
+          [user.id]
+        );
+
+        if (referrer) {
+          await client.query(
+            `INSERT INTO referrals (referrer_user_id, referred_user_id)
+             VALUES ($1, $2)`,
+            [referrer.id, user.id]
+          );
+        }
+
+        const token = crypto.randomBytes(32).toString('hex');
+        const tokenHash = hashToken(token);
+        const expiresAt = new Date(Date.now() + SESSION_MS);
+
+        await createSessionRecord(pool, {
+          userId: user.id,
+          tokenHash,
+          expiresAt,
+          transactionClient: client
+        });
+
+        await client.query('COMMIT');
+        committed = true;
+
+        res.setHeader(
+          'Set-Cookie',
+          `kc_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86400}`
+        );
       } catch (error) {
+        if (!committed) {
+          try {
+            await client.query('ROLLBACK');
+          } catch {
+            throw new Error(
+              'Registration failed and rollback could not be confirmed.'
+            );
+          }
+        }
+
         if (error.code === '23505') {
           return sendJson(res, 409, {
             error: 'An account with this email already exists.'
           });
         }
+
+        if (error.code === 'INVALID_REFERRAL_CODE') {
+          return sendJson(res, 400, { error: error.message });
+        }
+
         throw error;
+      } finally {
+        client.release();
       }
-
-      const user = result.rows[0];
-
-      await pool.query(
-        'INSERT INTO wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
-        [user.id]
-      );
-
-      await createSession(user.id, res);
 
       return sendJson(res, 201, {
         message: 'Account created successfully.',
@@ -1491,6 +1688,32 @@ const server = http.createServer(async (req, res) => {
       try {
         await client.query('BEGIN');
 
+        // Serialize referral registrations and withdrawal eligibility checks.
+        await client.query(
+          'SELECT id FROM users WHERE id = $1 FOR UPDATE',
+          [user.id]
+        );
+
+        const referralCountResult = await client.query(
+          `SELECT COUNT(*)::int AS successful_referrals
+           FROM referrals
+           WHERE referrer_user_id = $1`,
+          [user.id]
+        );
+
+        const successfulReferrals =
+          referralCountResult.rows[0].successful_referrals;
+
+        if (successfulReferrals < 5) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 403, {
+            error: 'You need 5 successful referrals before you can withdraw.',
+            successfulReferrals,
+            requiredReferrals: 5,
+            remainingReferrals: 5 - successfulReferrals
+          });
+        }
+
         await client.query(
           'INSERT INTO wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
           [user.id]
@@ -1607,6 +1830,83 @@ const server = http.createServer(async (req, res) => {
           reference: item.reference,
           createdAt: item.created_at
         }))
+      });
+    }
+
+    if (req.method === 'GET' && pathname === '/api/referrals') {
+      const user = await getLoggedInUser(req);
+
+      if (!user) {
+        return sendJson(res, 401, { error: 'Please sign in.' });
+      }
+
+      const accountResult = await pool.query(
+        'SELECT referral_code FROM users WHERE id = $1',
+        [user.id]
+      );
+
+      if (!accountResult.rows[0]?.referral_code) {
+        return sendJson(res, 500, {
+          error: 'Your referral code is not available yet.'
+        });
+      }
+
+      const summaryResult = await pool.query(
+        `SELECT
+           COUNT(*)::int AS successful_referrals,
+           COUNT(*) FILTER (WHERE seen_at IS NULL)::int AS unread_count
+         FROM referrals
+         WHERE referrer_user_id = $1`,
+        [user.id]
+      );
+
+      const historyResult = await pool.query(
+        `SELECT
+           u.full_name AS referred_name,
+           r.created_at AS registered_at
+         FROM referrals r
+         JOIN users u ON u.id = r.referred_user_id
+         WHERE r.referrer_user_id = $1
+         ORDER BY r.created_at DESC, r.id DESC
+         LIMIT 50`,
+        [user.id]
+      );
+
+      const successfulReferrals =
+        summaryResult.rows[0].successful_referrals;
+
+      return sendJson(res, 200, {
+        referralCode: String(accountResult.rows[0].referral_code).trim(),
+        successfulReferrals,
+        requiredReferrals: 5,
+        remainingReferrals: Math.max(0, 5 - successfulReferrals),
+        eligible: successfulReferrals >= 5,
+        unreadCount: summaryResult.rows[0].unread_count,
+        referrals: historyResult.rows.map(item => ({
+          name: item.referred_name,
+          registeredAt: item.registered_at
+        }))
+      });
+    }
+
+    if (req.method === 'POST' && pathname === '/api/referrals/seen') {
+      const user = await getLoggedInUser(req);
+
+      if (!user) {
+        return sendJson(res, 401, { error: 'Please sign in.' });
+      }
+
+      const result = await pool.query(
+        `UPDATE referrals
+         SET seen_at = NOW()
+         WHERE referrer_user_id = $1
+           AND seen_at IS NULL`,
+        [user.id]
+      );
+
+      return sendJson(res, 200, {
+        success: true,
+        markedAsRead: result.rowCount
       });
     }
 

@@ -226,10 +226,11 @@ footer{color:#8298bb!important}
       <strong>Online Offers</strong>
       <small>Browse available offers and earn rewards</small>
     </div>
-    <div class="dashboard-card">
+    <div class="dashboard-card" onclick="openReferrals()" role="button" tabindex="0"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReferrals();}">
       <span class="emoji">👥</span>
       <strong>Refer Friends</strong>
-      <small>Coming soon</small>
+      <small>Share your link and track successful registrations</small>
     </div>
     <div class="dashboard-card" onclick="openTransactions()" role="button" tabindex="0">
       <span class="emoji">📜</span>
@@ -255,6 +256,21 @@ footer{color:#8298bb!important}
       <strong>Admin Dashboard</strong>
       <small>Manage withdrawal requests</small>
     </div>
+  </div>
+
+  <div id="referralPanel" class="dashboard-card" style="margin-top:18px;text-align:left" hidden>
+    <h2>Refer Friends</h2>
+    <p>Invite friends using your personal link. A referral counts after a successful registration.</p>
+    <p><strong>Your referral link</strong></p>
+    <input id="referralLink" type="text" readonly aria-label="Your referral link">
+    <button type="button" onclick="copyReferralLink()">Copy referral link</button>
+    <h3 id="referralProgress">Loading referral progress...</h3>
+    <p id="referralEligibility">Five successful referrals are required before withdrawal.</p>
+    <p id="referralNotification" role="status" aria-live="polite"></p>
+    <h3>People who joined using your link</h3>
+    <div id="referralHistory" aria-live="polite"><p>Loading referral history...</p></div>
+    <p><small>Referrals do not earn cash bonuses. They count toward withdrawal eligibility only.</small></p>
+    <button type="button" class="secondary" onclick="closeReferrals()">Close referrals</button>
   </div>
 
   <button type="button" onclick="logoutAccount()">Sign Out</button>
@@ -547,7 +563,8 @@ async function registerAccount(event) {
     const result = await sendAccountRequest('/api/register', {
       fullName: form.elements.fullName.value,
       email: form.elements.email.value,
-      password: form.elements.password.value
+      password: form.elements.password.value,
+      referralCode: new URLSearchParams(window.location.search).get('ref') || undefined
     });
 
     form.elements.password.value = '';
@@ -596,6 +613,92 @@ function openDashboard(user) {
   document.getElementById('adminCard').hidden = user.isAdmin !== true;
   showPage('dashboard');
   loadWallet();
+  loadReferrals();
+}
+
+async function loadReferrals() {
+  const history = document.getElementById('referralHistory');
+  const progress = document.getElementById('referralProgress');
+  const eligibility = document.getElementById('referralEligibility');
+  const notification = document.getElementById('referralNotification');
+
+  try {
+    const response = await fetch('/api/referrals', {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not load referrals.');
+
+    const link = new URL('/', window.location.origin);
+    link.searchParams.set('ref', result.referralCode);
+    document.getElementById('referralLink').value = link.toString();
+
+    progress.textContent = `${result.successfulReferrals} / ${result.requiredReferrals} successful referrals`;
+    eligibility.textContent = result.eligible
+      ? 'You have met the referral requirement for withdrawals.'
+      : `You need ${result.remainingReferrals} more successful referral${result.remainingReferrals === 1 ? '' : 's'} before withdrawing.`;
+
+    history.replaceChildren();
+    if (!result.referrals.length) {
+      const empty = document.createElement('p');
+      empty.textContent = 'No successful referrals yet. Share your link to invite friends.';
+      history.appendChild(empty);
+    } else {
+      for (const referral of result.referrals) {
+        const row = document.createElement('p');
+        const date = new Date(referral.registeredAt);
+        const dateText = Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
+        row.textContent = dateText
+          ? `${referral.name} — registered ${dateText}`
+          : referral.name;
+        history.appendChild(row);
+      }
+    }
+
+    notification.textContent = result.unreadCount > 0
+      ? `${result.unreadCount} new referral registration${result.unreadCount === 1 ? '' : 's'}.`
+      : 'You are up to date with referral notifications.';
+
+    if (result.unreadCount > 0) {
+      fetch('/api/referrals/seen', {
+        method: 'POST',
+        credentials: 'same-origin'
+      }).catch(() => {});
+    }
+  } catch (error) {
+    history.textContent = error.message || 'Could not load referral information.';
+    showNotice('dashboard', error.message || 'Could not load referrals.');
+  }
+}
+
+function openReferrals() {
+  const panel = document.getElementById('referralPanel');
+  panel.hidden = false;
+  loadReferrals();
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeReferrals() {
+  document.getElementById('referralPanel').hidden = true;
+}
+
+async function copyReferralLink() {
+  const field = document.getElementById('referralLink');
+  if (!field.value) {
+    showNotice('dashboard', 'Your referral link is not ready yet.');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(field.value);
+    showNotice('dashboard', 'Referral link copied. Share it with your friends.', true);
+  } catch {
+    field.focus();
+    field.select();
+    showNotice('dashboard', 'Select and copy your referral link.');
+  }
 }
 
 function openOfferzyWall() {

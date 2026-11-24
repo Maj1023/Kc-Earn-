@@ -73,12 +73,20 @@ async function verifyCurrentPassword(passwordHash, password) {
   return bcrypt.compare(password, passwordHash);
 }
 
-async function createSessionRecord(pool, { userId, tokenHash, expiresAt }) {
-  const client = await pool.connect();
+async function createSessionRecord(pool, {
+  userId,
+  tokenHash,
+  expiresAt,
+  transactionClient = null
+}) {
+  const ownsConnection = !transactionClient;
+  const client = transactionClient || await pool.connect();
   let committed = false;
 
   try {
-    await client.query('BEGIN');
+    if (ownsConnection) {
+      await client.query('BEGIN');
+    }
 
     const userResult = await client.query(
       'SELECT id FROM users WHERE id = $1 FOR UPDATE',
@@ -95,10 +103,12 @@ async function createSessionRecord(pool, { userId, tokenHash, expiresAt }) {
       [tokenHash, userId, expiresAt]
     );
 
-    await client.query('COMMIT');
-    committed = true;
+    if (ownsConnection) {
+      await client.query('COMMIT');
+      committed = true;
+    }
   } catch (error) {
-    if (!committed) {
+    if (ownsConnection && !committed) {
       try {
         await client.query('ROLLBACK');
       } catch {
@@ -109,7 +119,9 @@ async function createSessionRecord(pool, { userId, tokenHash, expiresAt }) {
     }
     throw error;
   } finally {
-    client.release();
+    if (ownsConnection) {
+      client.release();
+    }
   }
 }
 
