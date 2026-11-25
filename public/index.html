@@ -229,7 +229,14 @@ footer{color:#8298bb!important}
          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openOfferzyWall();}">
       <span class="emoji">🎯</span>
       <strong>Online Offers</strong>
-      <small>Browse available offers and earn rewards</small>
+      <small>Offerzy · Primary provider</small>
+    </div>
+    <div class="dashboard-card"
+         onclick="openOfferwallGG()" role="button" tabindex="0"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openOfferwallGG();}">
+      <span class="emoji">🌐</span>
+      <strong>More Offers</strong>
+      <small>Offerwall.GG · Secondary provider</small>
     </div>
     <div class="dashboard-card" onclick="openReferrals()" role="button" tabindex="0"
          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReferrals();}">
@@ -480,7 +487,7 @@ footer{color:#8298bb!important}
       </button>
 
       <p><strong>Important:</strong> When rewards are enabled, verified
-      Offerzy conversions can credit customer wallets. Keep rewards disabled
+      Offerzy or Offerwall.GG conversions can credit customer wallets. Keep rewards disabled
       until the integration and payout arrangements are ready.</p>
     </div>
 
@@ -721,6 +728,20 @@ function openOfferzyWall() {
   url.searchParams.set('user_id', messagingCurrentUserId);
 
   window.open(url.toString(), '_blank', 'noopener,noreferrer');
+}
+
+function openOfferwallGG() {
+  if (!messagingCurrentUserId ||
+      !/^[1-9]\d*$/.test(messagingCurrentUserId)) {
+    showNotice('dashboard', 'Please sign in again before opening offers.');
+    return;
+  }
+
+  window.open(
+    '/api/offerwall-gg/access',
+    '_blank',
+    'noopener,noreferrer'
+  );
 }
 
 async function loadWallet() {
@@ -985,8 +1006,8 @@ async function loadAdminRewardSettings() {
     enabledInput.checked = result.settings.rewardsEnabled;
 
     status.textContent = result.settings.rewardsEnabled
-      ? 'Status: ENABLED — verified Offerzy conversions can credit customer wallets.'
-      : 'Status: Disabled — customer wallets will not receive Offerzy rewards.';
+      ? 'Status: ENABLED — verified Offerzy and Offerwall.GG conversions can credit customer wallets.'
+      : 'Status: Disabled — customer wallets will not receive offer-provider rewards.';
 
     loaded = true;
   } catch (error) {
@@ -1024,7 +1045,7 @@ async function saveAdminRewardSettings() {
   }
 
   if (rewardsEnabled &&
-      !confirm('Enable customer rewards? Verified Offerzy conversions will begin crediting wallets, subject to the configured reward percentage and exchange rate.')) {
+      !confirm('Enable customer rewards? Verified Offerzy and Offerwall.GG conversions can credit wallets, subject to the configured reward percentage and exchange rate.')) {
     return;
   }
 
