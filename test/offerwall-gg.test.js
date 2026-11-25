@@ -235,11 +235,13 @@ test('calculates exact wallet kobo from configured placement units and admin set
 });
 
 test('test postbacks are acknowledged without database access', async () => {
-  const callback = makeCallback({ test: '1' });
+  const callback = makeCallback({
+    userId: 'test-user-1',
+    test: '1'
+  });
   const result = await handleOfferwallGGPostback({
     rawParameters: callback.rawParameters,
     secretKey: SECRET,
-    unitsPerUsd: '1000',
     pool: {
       connect() {
         assert.fail('Test callback must not access the database.');

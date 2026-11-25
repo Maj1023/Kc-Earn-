@@ -127,8 +127,9 @@ function parseOfferwallGGCallback(rawParameters, secretKey) {
     return { error: 'Invalid Offerwall.GG signature.' };
   }
 
-  if (!/^[1-9]\d{0,18}$/.test(values.userId) ||
-      BigInt(values.userId) > MAX_BIGINT) {
+  if (values.test !== '1' &&
+      (!/^[1-9]\d{0,18}$/.test(values.userId) ||
+       BigInt(values.userId) > MAX_BIGINT)) {
     return { error: 'Invalid Offerwall.GG userId.' };
   }
 
@@ -378,16 +379,6 @@ async function handleOfferwallGGPostback({
     return { status: 503, body: 'Offerwall.GG callback is not configured.' };
   }
 
-  let unitsScaled;
-  try {
-    unitsScaled = parseUnitsPerUsd(unitsPerUsd);
-  } catch {
-    return {
-      status: 503,
-      body: 'Offerwall.GG currency units are not configured.'
-    };
-  }
-
   const parsed = parseOfferwallGGCallback(rawParameters, secretKey);
   if (parsed.error) {
     const invalidSignature = parsed.error === 'Invalid Offerwall.GG signature.';
@@ -401,6 +392,16 @@ async function handleOfferwallGGPostback({
 
   if (data.test === '1') {
     return { status: 200, body: 'OK' };
+  }
+
+  let unitsScaled;
+  try {
+    unitsScaled = parseUnitsPerUsd(unitsPerUsd);
+  } catch {
+    return {
+      status: 503,
+      body: 'Offerwall.GG currency units are not configured.'
+    };
   }
 
   let client;
