@@ -11,6 +11,11 @@ const {
 } = require('./referrals');
 const { handleOfferzyPostback } = require('./offerzy');
 const {
+  buildOfferwallGGWallUrl,
+  createOfferwallGGTables,
+  handleOfferwallGGPostback
+} = require('./offerwall-gg');
+const {
   ADMIN_ROLE_LOCK_SQL,
   createSessionRecord,
   getAdminAuthorizationError,
@@ -560,6 +565,8 @@ async function initializeDatabase() {
     ON offerzy_recovery_ledger(user_id, created_at DESC)
   `);
 
+  await createOfferwallGGTables(pool);
+
   console.log('KC Earn database and account tables ready.');
 }
 
@@ -590,6 +597,39 @@ function readJson(req) {
       } catch {
         reject(new Error('Invalid JSON'));
       }
+    });
+
+    req.on('error', reject);
+  });
+}
+
+function readUrlEncodedBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let length = 0;
+    let tooLarge = false;
+
+    req.on('data', chunk => {
+      length += chunk.length;
+
+      if (length > 10000) {
+        tooLarge = true;
+        chunks.length = 0;
+        return;
+      }
+
+      if (!tooLarge) {
+        chunks.push(chunk);
+      }
+    });
+
+    req.on('end', () => {
+      if (tooLarge) {
+        reject(new Error('Request too large'));
+        return;
+      }
+
+      resolve(Buffer.concat(chunks).toString('utf8'));
     });
 
     req.on('error', reject);
@@ -680,6 +720,47 @@ const server = http.createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
 
   try {
+    if (pathname === '/api/offerwall-gg/postback' &&
+        (req.method === 'GET' || req.method === 'POST')) {
+      let rawParameters;
+
+      if (req.method === 'GET') {
+        const queryIndex = req.url.indexOf('?');
+        rawParameters = queryIndex === -1
+          ? ''
+          : req.url.slice(queryIndex + 1);
+      } else {
+        const contentType = String(req.headers['content-type'] || '')
+          .split(';')[0]
+          .trim()
+          .toLowerCase();
+
+        if (contentType !== 'application/x-www-form-urlencoded') {
+          req.resume();
+          res.writeHead(415, {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Cache-Control': 'no-store'
+          });
+          return res.end('Expected an URL-encoded Offerwall.GG callback.');
+        }
+
+        rawParameters = await readUrlEncodedBody(req);
+      }
+
+      const callback = await handleOfferwallGGPostback({
+        rawParameters,
+        pool,
+        secretKey: process.env.OFFERWALL_GG_SECRET_KEY,
+        unitsPerUsd: process.env.OFFERWALL_GG_UNITS_PER_USD
+      });
+
+      res.writeHead(callback.status, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store'
+      });
+      return res.end(callback.body);
+    }
+
     // Protect browser API requests against cross-site request forgery.
     if (req.method === 'POST' && pathname.startsWith('/api/')) {
       const origin = req.headers.origin;
@@ -753,6 +834,56 @@ const server = http.createServer(async (req, res) => {
         service: 'KC Earn API',
         database: 'connected'
       });
+    }
+
+    if (req.method === 'GET' &&
+        pathname === '/api/offerwall-gg/access') {
+      const user = await getLoggedInUser(req);
+
+      if (!user) {
+        return sendJson(res, 401, {
+          error: 'Please sign in before opening Offerwall.GG.'
+        });
+      }
+
+      const timestampedLinks =
+        process.env.OFFERWALL_GG_SIGNED_LINK_EXPIRY_ENABLED || 'false';
+      if (timestampedLinks !== 'true' && timestampedLinks !== 'false') {
+        return sendJson(res, 503, {
+          error: 'Offerwall.GG access is not configured.'
+        });
+      }
+
+      let wallUrl;
+      try {
+        wallUrl = buildOfferwallGGWallUrl({
+          publicKey: process.env.OFFERWALL_GG_PUBLIC_KEY,
+          secretKey: process.env.OFFERWALL_GG_SECRET_KEY,
+          unitsPerUsd: process.env.OFFERWALL_GG_UNITS_PER_USD,
+          userId: user.id,
+          timestampedLinks: timestampedLinks === 'true'
+        });
+      } catch {
+        return sendJson(res, 503, {
+          error: 'Offerwall.GG access is not configured.'
+        });
+      }
+
+      const rewardSettings = await pool.query(
+        'SELECT rewards_enabled FROM reward_settings WHERE id = 1'
+      );
+      if (rewardSettings.rowCount !== 1 ||
+          rewardSettings.rows[0].rewards_enabled !== true) {
+        return sendJson(res, 503, {
+          error: 'Offerwall.GG rewards are currently disabled.'
+        });
+      }
+
+      res.writeHead(302, {
+        Location: wallUrl,
+        'Cache-Control': 'no-store'
+      });
+      return res.end();
     }
 
     if (req.method === 'POST' && pathname === '/api/register') {
@@ -1711,6 +1842,24 @@ const server = http.createServer(async (req, res) => {
             successfulReferrals,
             requiredReferrals: 5,
             remainingReferrals: 5 - successfulReferrals
+          });
+        }
+
+        await client.query(
+          `INSERT INTO offerwall_gg_recovery_accounts (user_id)
+           VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
+          [user.id]
+        );
+        const offerwallRecoveryResult = await client.query(
+          `SELECT outstanding_kobo::text
+           FROM offerwall_gg_recovery_accounts
+           WHERE user_id = $1 FOR UPDATE`,
+          [user.id]
+        );
+        if (BigInt(offerwallRecoveryResult.rows[0].outstanding_kobo) > 0n) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 409, {
+            error: 'Withdrawals are unavailable while an Offerwall.GG reversal balance is outstanding.'
           });
         }
 
