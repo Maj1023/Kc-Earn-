@@ -246,7 +246,7 @@ function buildOfferwallGGWallUrl({
   timestampedLinks = false,
   now = Date.now()
 }) {
-  if (typeof publicKey !== 'string' || !/^[A-Za-z0-9_-]{32}$/.test(publicKey) ||
+  if (typeof publicKey !== 'string' || !/^[a-f0-9]{32}$/i.test(publicKey) ||
       typeof secretKey !== 'string' || secretKey.length === 0) {
     throw new Error('Offerwall.GG access is not configured.');
   }
