@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#102B66">
 <meta name="offerwall-verification" content="ow-979b3c36814a3c6e5107">
 <title>KC Earn — Earn more. Do more.</title>
@@ -9,8 +11,7 @@
 body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#F4F7FC;color:#142B55}
 header{background:#102B66;color:white;text-align:center;padding:38px 20px 55px}
 .logo{width:76px;height:76px;border-radius:23px;background:white;color:#1764DC;display:grid;place-items:center;font-size:30px;font-weight:900;margin:0 auto 12px}
-.brand{font-size:27px;font-weight
-<style>
+.brand{font-size:27px;font-weight:900;letter-spacing:3px}
 *{box-sizing:border-box}
 body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#F4F7FC;color:#142B55}
 header{background:#102B66;color:white;text-align:center;padding:38px 20px 55px}
@@ -122,6 +123,172 @@ input:focus,select:focus,textarea:focus{border-color:#6da0ff!important;box-shado
 footer{color:#8298bb!important}
 .dashboard-grid .dashboard-card{background:#102344!important}
 .logo{background:#dce9ff!important;color:#174a91!important;border-color:#83a9e8!important}
+
+/* KC EARN PREMIUM MOBILE DESIGN */
+
+/* Overall layout */
+* { -webkit-tap-highlight-color: transparent; }
+html { scroll-behavior: smooth; }
+body {
+  min-height: 100vh;
+  line-height: 1.5;
+  background:
+    radial-gradient(ellipse at 50% 0%, #183d70 0%, transparent 48%),
+    #07152f !important;
+}
+
+/* Brand header */
+header {
+  position: relative;
+  overflow: hidden;
+  padding: 46px 20px 66px !important;
+  background: linear-gradient(135deg, #061329, #102f61 65%, #174a91) !important;
+}
+header::before {
+  content: "";
+  position: absolute;
+  width: 230px;
+  height: 230px;
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 50%;
+  top: -145px;
+  right: -65px;
+}
+.logo {
+  width: 82px;
+  height: 82px;
+  border-radius: 25px;
+  font-size: 32px;
+  box-shadow: 0 12px 35px rgba(0,0,0,.25);
+}
+.brand {
+  font-size: 29px;
+  letter-spacing: 4px;
+}
+.tagline {
+  font-size: 14px;
+  letter-spacing: .5px;
+}
+
+/* Main content */
+main {
+  position: relative;
+  width: min(100% - 24px, 760px);
+  max-width: 760px;
+  margin: -25px auto 0;
+  padding: 30px 22px 42px;
+  border: 1px solid #263b60;
+  border-radius: 25px;
+  min-height: 500px;
+}
+h1 {
+  font-size: clamp(25px, 5vw, 34px);
+  line-height: 1.2;
+  letter-spacing: -.7px;
+}
+.description {
+  font-size: 15px;
+  line-height: 1.75;
+  max-width: 600px;
+}
+
+/* Earning categories */
+.features {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.feature {
+  min-height: 105px;
+  padding: 18px;
+  border: 1px solid #263b60;
+  border-radius: 17px;
+  transition: transform .2s, border-color .2s;
+}
+.feature:hover {
+  transform: translateY(-2px);
+  border-color: #5489e9;
+}
+.feature .emoji { font-size: 30px; }
+.feature strong { font-size: 15px; }
+.feature small { font-size: 12px; line-height: 1.5; }
+
+/* Cards and wallet */
+.dashboard-card,
+.message-panel {
+  padding: 20px;
+  border-radius: 18px;
+}
+.dashboard-card h2 { font-size: 21px; }
+.wallet-card {
+  border-radius: 20px;
+  padding: 24px;
+}
+#walletBalance {
+  font-size: clamp(27px, 6vw, 36px);
+  font-weight: 900;
+  letter-spacing: -.8px;
+}
+.dashboard-grid { gap: 13px; }
+.dashboard-grid .dashboard-card {
+  min-height: 130px;
+  padding: 17px;
+  border-radius: 17px;
+  cursor: pointer;
+  transition: transform .2s, border-color .2s;
+}
+.dashboard-grid .dashboard-card:hover {
+  transform: translateY(-2px);
+  border-color: #5489e9;
+}
+.dashboard-grid strong { font-size: 15px; }
+.dashboard-grid small { line-height: 1.5; }
+
+/* Forms and buttons */
+button {
+  min-height: 54px;
+  border-radius: 15px;
+  font-size: 15px;
+  letter-spacing: .1px;
+  box-shadow: 0 7px 18px rgba(20,75,170,.18);
+  transition: transform .15s, background .15s;
+}
+button:active { transform: scale(.985); }
+button.secondary {
+  box-shadow: none;
+}
+input, select, textarea {
+  min-height: 54px;
+  border-radius: 14px;
+  font-size: 16px;
+}
+.back { padding: 20px; }
+
+/* Smaller phones */
+@media (max-width: 420px) {
+  header { padding: 36px 16px 58px !important; }
+  .logo { width: 72px; height: 72px; }
+  .brand { font-size: 25px; }
+  main {
+    width: calc(100% - 16px);
+    padding: 25px 16px 34px;
+    border-radius: 22px;
+  }
+  .features { grid-template-columns: 1fr; }
+  .feature { min-height: 88px; }
+  .dashboard-grid { gap: 9px; }
+  .dashboard-grid .dashboard-card {
+    min-height: 120px;
+    padding: 13px;
+  }
+}
+
+/* Larger screens */
+@media (min-width: 760px) {
+  header { padding-bottom: 75px !important; }
+  main { padding: 38px 34px 48px; }
+  .features { gap: 16px; }
+}
+
 
 </style>
 </head>
