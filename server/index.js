@@ -16,6 +16,10 @@ const {
   handleOfferwallGGPostback
 } = require('./offerwall-gg');
 const {
+  createAdGemTables,
+  handleAdGemPostback
+} = require('./adgem');
+const {
   ADMIN_ROLE_LOCK_SQL,
   createSessionRecord,
   getAdminAuthorizationError,
@@ -566,6 +570,7 @@ async function initializeDatabase() {
   `);
 
   await createOfferwallGGTables(pool);
+  await createAdGemTables(pool);
 
   console.log('KC Earn database and account tables ready.');
 }
@@ -601,6 +606,24 @@ function readJson(req) {
 
     req.on('error', reject);
   });
+}
+
+async function readRawBody(req) {
+  const chunks = [];
+  let total = 0;
+  const limit = 65536;
+
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > limit) {
+      const error = new Error('Request body too large');
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+
+  return Buffer.concat(chunks);
 }
 
 function readUrlEncodedBody(req) {
@@ -720,6 +743,44 @@ const server = http.createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
 
   try {
+    if (pathname === '/api/adgem/postback') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'text/plain' });
+        res.end('POST required');
+        return;
+      }
+
+      if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) {
+        res.writeHead(415, { 'Content-Type': 'text/plain' });
+        res.end('JSON required');
+        return;
+      }
+
+      const postbackKey = process.env.ADGEM_POSTBACK_KEY;
+      if (!postbackKey) {
+        res.writeHead(503, { 'Content-Type': 'text/plain' });
+        res.end('AdGem postback is not configured');
+        return;
+      }
+
+      try {
+        const rawBody = await readRawBody(req);
+        const result = await handleAdGemPostback({
+          rawBody,
+          signature: req.headers.signature,
+          pool,
+          postbackKey
+        });
+
+        res.writeHead(result.status, { 'Content-Type': 'text/plain' });
+        res.end(result.body);
+      } catch (error) {
+        res.writeHead(error.status || 400, { 'Content-Type': 'text/plain' });
+        res.end(error.status === 413 ? 'Request body too large' : 'Invalid request');
+      }
+      return;
+    }
+
     if (pathname === '/api/offerwall-gg/postback' &&
         (req.method === 'GET' || req.method === 'POST')) {
       let rawParameters;
